@@ -1,0 +1,36 @@
+{
+  "name": "tegridy",
+  "version": "1.0.0",
+  "description": "Lightweight authentication library for Node.js",
+  "main": "index.js",
+  "scripts": {
+    "test": "npm run build && mocha ./dist/test/test.js",
+    "start": "npm run build && node ./dist/testing/main.js",
+    "build": "node ./pre-build.js && tsc"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/reed-lawrence/node-tegridy.git"
+  },
+  "keywords": [
+    "authentication",
+    "node"
+  ],
+  "author": "Reed Lawrence",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/reed-lawrence/node-tegridy/issues"
+  },
+  "homepage": "https://github.com/reed-lawrence/node-tegridy#readme",
+  "dependencies": {
+    "@types/express": "^4.17.2",
+    "@types/mysql": "^2.15.8",
+    "express": "^4.17.1",
+    "mysql": "^2.17.1",
+    "promise-mysql": "^4.1.1"
+  },
+  "devDependencies": {
+    "@types/mocha": "^5.2.7",
+    "mocha": "^6.2.2"
+  }
+}
