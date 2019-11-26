@@ -8,12 +8,16 @@ import e from 'express';
 import { ILoginRequest } from './classes/login-request';
 import { generatePasswordHash, generateSalt, generateSessionToken } from './auth-crypto';
 import { IdentityToken } from './classes/identity-token';
+import { Request } from 'express-serve-static-core';
+import { ILoginResponse } from './classes/login-response';
+import { IAuthClientOptions } from './classes/auth-client-options';
 
 export class AuthClient {
-  public dbname: string;
-  public host: string;
-  public user: string;
-  public password: string;
+  public dbname: string = 'auth_server';
+  public host: string = 'localhost';
+  public user: string = 'root';
+  public password: string = '';
+  public port: number = 3306;
 
   public pool: mysql.Pool | undefined;
 
@@ -26,11 +30,19 @@ export class AuthClient {
     sessionTokenStore: 'auth_session_token_store'
   }
 
-  constructor({ dbname, host, user, password }: { dbname: string, host: string, user: string, password: string }) {
-    this.dbname = dbname;
-    this.host = host;
-    this.user = user;
-    this.password = password;
+  private readonly concurrentSessions: number | undefined;
+
+  constructor(init?: IAuthClientOptions) {
+    if (init) {
+      if (init.user) { this.user = init.user; }
+      if (init.dbname) { this.dbname = init.dbname; }
+      if (init.host) { this.host = init.host; }
+      if (init.password) { this.password = init.password; }
+      if (init.port) { this.port = init.port; }
+      if (init.opts && init.opts.concurrentSessions) {
+        this.concurrentSessions = init.opts.concurrentSessions;
+      }
+    }
   }
 
   /// PUBLIC METHODS
@@ -40,11 +52,11 @@ export class AuthClient {
    */
   public async start() {
     const options: mysql.PoolConfig = {
-      connectTimeout: 10,
       host: this.host,
       user: this.user,
       password: this.password,
       database: this.dbname,
+      port: this.port,
       queryFormat: (query: string, values: any) => {
         if (!values) return query;
         return query.replace(/[@](\w+)/g, (txt, key) => {
@@ -151,42 +163,87 @@ export class AuthClient {
    * @param loginRequest The login request to be attempted
    * @returns The identity of the user and session token or undefined if invalid login
    */
-  public async login(loginRequest: ILoginRequest) {
+  public async login(sessionToken?: string, loginRequest?: Partial<ILoginRequest>): Promise<ILoginResponse | undefined> {
     const dbconn = await this.getConnection();
 
-    const user = await this._getUser(loginRequest.email, dbconn);
-    if (user && user.id) {
-      const salt: string = await this._getStoredSaltHash(user.id, dbconn);
-      const passHash: string = await generatePasswordHash(loginRequest.password, salt);
-      console.log(passHash);
-
-      const qString = `SELECT COUNT(user_id) FROM ${this.tableNames.passwordStore} WHERE password=@password AND user_id=@user_id`;
-      const query = new MySqlQuery(qString, dbconn, {
-        parameters: {
-          password: passHash,
-          user_id: user.id,
-        }
-      });
-
-      const userCount: number = await query.executeScalarAsync();
-      if (userCount === 1) {
-        user.getUserRoles(this.tableNames.userRoleStore, dbconn);
-
-        await this._clearUserSessions(user.id, dbconn);
-        const sessionPayload = await generateSessionToken();
-        const sessionResult = await this._createUserSession(user.id, sessionPayload.selector, sessionPayload.token, dbconn);
-        if (!sessionResult) {
-          dbconn.release();
-          return undefined;
-        }
-
-        return { user: user, sessionToken: sessionPayload.token + sessionPayload.selector };
-
-
-      } else {
+    /**
+     * if a session token is supplied:
+     *  - Attempt to validate the current session token
+     *    - If session token is valid, update the token date and return the user
+     */
+    if (sessionToken) {
+      const user = await this.validateSession(sessionToken, dbconn);
+      if (user) {
+        await this._updateUserSession(user.id, sessionToken, dbconn);
+        await this._cleanUserSessions(user.id, dbconn);
         dbconn.release();
-        return undefined;
+        return { user, sessionToken: sessionToken };
       }
+    }
+
+    /**
+     * If a sessionToken was not provided or is not valid, we need to look for login credentials
+     */
+    if (loginRequest) {
+      if (!loginRequest.email) {
+        throw new Error('Email not provided');
+      }
+
+      if (!loginRequest.password) {
+        throw new Error('Password not provided');
+      }
+
+      /**
+       * Get the user credientials according to the email supplied.
+       *  - If no email matching, return void
+       *  - If email and password match, get and return user identity and new sessionToken
+       */
+      const user = await this._getUser(loginRequest.email, dbconn);
+      if (user && user.id) {
+        const salt: string = await this._getStoredSaltHash(user.id, dbconn);
+        const passHash: string = await generatePasswordHash(loginRequest.password, salt);
+        console.log(passHash);
+
+        const qString = `SELECT COUNT(user_id) FROM ${this.tableNames.passwordStore} WHERE password=@password AND user_id=@user_id`;
+        const query = new MySqlQuery(qString, dbconn, {
+          parameters: {
+            password: passHash,
+            user_id: user.id,
+          }
+        });
+
+        const userCount: number = await query.executeScalarAsync();
+        if (userCount === 1) {
+          await user.getUserRoles(this.tableNames.userRoleStore, dbconn);
+
+          await this._cleanUserSessions(user.id, dbconn);
+          const sessionPayload = await generateSessionToken();
+          const sessionResult = await this._createUserSession(user.id, sessionPayload.selector, sessionPayload.token, dbconn);
+
+          if (!sessionResult) {
+            console.error('Unable to create a new sessionToken for the user');
+            dbconn.release();
+            return;
+          }
+
+          await this._cleanUserSessions(user.id, dbconn);
+          dbconn.release();
+
+          return { user, sessionToken: sessionPayload.token + sessionPayload.selector };
+
+        } else {
+          console.error('No matching password hash found for the login attempt');
+          dbconn.release();
+          return;
+        }
+      } else {
+        console.error('No matching email found for the login attempt');
+        dbconn.release();
+        return;
+      }
+    } else {
+      dbconn.release();
+      throw new Error('No login request payload provided');
     }
   }
 
@@ -208,7 +265,7 @@ export class AuthClient {
     return count > 0;
   }
 
-  public async validateSession(sessionToken: string) {
+  public async validateSession(sessionToken: string, dbconn?: mysql.PoolConnection) {
     if (sessionToken.length !== 512) {
       console.error('Session token invalid: Code 1');
       return undefined;
@@ -218,7 +275,9 @@ export class AuthClient {
     const validator: string = sessionToken.substr(0, splitIndex);
     const selector: string = sessionToken.substr(splitIndex);
 
-    const dbconn = await this.getConnection();
+    if (!dbconn) {
+      dbconn = await this.getConnection();
+    }
 
     // Get the row id from the selector
     let qString = `SELECT id from ${this.tableNames.sessionTokenStore} WHERE selector=@selector`;
@@ -228,10 +287,11 @@ export class AuthClient {
       }
     });
 
-    const rowId: number = await query.executeScalarAsync();
+    const rowId: number = parseInt(await query.executeScalarAsync(), 10);
     if (!rowId) {
       dbconn.release();
-      console.error('Session token invalid: Code 2');
+      console.error('Cannot find a matching row corresponding to the given token selector');
+      return;
     }
 
     qString = `SELECT * FROM ${this.tableNames.sessionTokenStore} WHERE id=@id`;
@@ -244,7 +304,8 @@ export class AuthClient {
     const qResult = await query.executeQueryAsync();
     if (!qResult.results[0]) {
       dbconn.release();
-      throw new Error('Session token invalid: Code 3');
+      console.error('No rows returned corresponding to the Id returned from the given token selector');
+      return;
     }
     const storedToken = new IdentityToken({
       date_created: qResult.results[0].date_created,
@@ -259,11 +320,31 @@ export class AuthClient {
       userId = storedToken.user_id;
     } else {
       dbconn.release();
-      
+      console.error('User returned does not correspond to stored token user');
+      return;
     }
 
-    const user = this._getUser(userId, dbconn);
+    const user = await this._getUser(userId, dbconn);
+    return user;
+  }
 
+  public async logout(sessionToken: string) {
+    const dbconn = await this.getConnection();
+    const user = await this.validateSession(sessionToken, dbconn);
+    if (user) {
+      const destroyResult: boolean = await this._destroyUserSession(user.id, sessionToken, dbconn);
+      dbconn.release();
+
+      if (destroyResult) {
+        return true;
+      } else {
+        console.error('Unable to destroy user session');
+        return false;
+      }
+    } else {
+      dbconn.release();
+      return false;
+    }
   }
 
 
@@ -277,20 +358,102 @@ export class AuthClient {
           if (err) return reject(err);
           return resolve(conn);
         });
+      } else {
+        return reject(new Error('Unable to connect to authentication server instance'));
       }
     });
   }
 
-  private async _clearUserSessions(userId: number, dbconn: mysql.PoolConnection) {
-    let qString = `DELETE FROM ${this.tableNames.sessionTokenStore} WHERE user_id=@user_id`
+  private async _destroyUserSession(userId: number, sessionToken: string, dbconn: mysql.PoolConnection) {
+    const splitIndex = 496;
+    const validator: string = sessionToken.substr(0, splitIndex);
+    const selector: string = sessionToken.substr(splitIndex);
+
+    let qString = `DELETE FROM ${this.tableNames.sessionTokenStore} WHERE user_id=@user_id AND validator=@validator AND selector=@selector`;
     let query = new MySqlQuery(qString, dbconn, {
+      parameters: {
+        user_id: userId,
+        validator: validator,
+        selector: selector
+      }
+    });
+
+    const deleteResult = await query.executeNonQueryAsync();
+
+    // Ensure there are no matching sessions
+    qString = `SELECT COUNT(id) FROM ${this.tableNames.sessionTokenStore} WHERE user_id=@user_id AND validator=@validator AND selector=@selector`;
+    query = new MySqlQuery(qString, dbconn, {
+      parameters: {
+        user_id: userId,
+        validator: validator,
+        selector: selector
+      }
+    });
+
+    const numrows: number = parseInt(await query.executeScalarAsync(), 10);
+    if (numrows === 0) {
+      return true;
+    } else {
+      return false;
+    }
+  }
+
+  private async _cleanUserSessions(userId: number, dbconn: mysql.PoolConnection) {
+    if (this.concurrentSessions) {
+      let qString = `SELECT COUNT(user_id) FROM ${this.tableNames.sessionTokenStore} WHERE user_id=@user_id`;
+      let query = new MySqlQuery(qString, dbconn, {
+        parameters: {
+          user_id: userId
+        }
+      });
+      const count: number = parseInt(await query.executeScalarAsync(), 10);
+      if (count > this.concurrentSessions) {
+        const tokens = await this._getUserIdentityTokens(userId, dbconn);
+        tokens.sort((a, b) => a.date_created < b.date_created ? 1 : a.date_created > b.date_created ? -1 : 0);
+
+        const toRemove = new Array<IdentityToken>();
+        for (let i = this.concurrentSessions; i < tokens.length; i++) {
+          toRemove.push(tokens[i]);
+        }
+
+        for (const token of toRemove) {
+          qString = `DELETE FROM ${this.tableNames.sessionTokenStore} WHERE id=@id`;
+          query = new MySqlQuery(qString, dbconn, {
+            parameters: {
+              id: token.id
+            }
+          });
+
+          await query.executeNonQueryAsync();
+        }
+      }
+    }
+    return;
+  }
+
+  private async _getUserIdentityTokens(userId: number, dbconn: mysql.PoolConnection) {
+    const tokenList = new Array<IdentityToken>();
+
+    const qString = `SELECT * FROM ${this.tableNames.sessionTokenStore} WHERE user_id=@user_id`;
+    const query = new MySqlQuery(qString, dbconn, {
       parameters: {
         user_id: userId
       }
     });
 
-    const deleteResult = await query.executeNonQueryAsync();
-    return true;
+    const rows = await query.executeQueryAsync();
+    if (rows.results && rows.results.length > 0) {
+      for (const row of rows.results) {
+        tokenList.push(new IdentityToken({
+          date_created: row.date_created,
+          id: row.id,
+          selector: row.selector,
+          user_id: row.user_id,
+          validator: row.validator
+        }));
+      }
+    }
+    return tokenList;
   }
 
   private async _createUserSession(userId: number, selector: string, validator: string, dbconn: mysql.PoolConnection) {
@@ -308,6 +471,34 @@ export class AuthClient {
     if (saveResult.affectedRows === 1) {
       return true;
     } else {
+      return false;
+    }
+  }
+
+  /**
+   * Refreshes date_created property of the session token in the database
+   */
+  private async _updateUserSession(userId: number, sessionToken: string, dbconn: mysql.PoolConnection) {
+
+    const splitIndex = 496;
+    const validator: string = sessionToken.substr(0, splitIndex);
+    const selector: string = sessionToken.substr(splitIndex);
+
+    const qString = `UPDATE ${this.tableNames.sessionTokenStore} SET date_created=@date_created WHERE user_id=@user_id AND selector=@selector AND validator=@validator`;
+    const query = new MySqlQuery(qString, dbconn, {
+      parameters: {
+        selector: selector,
+        validator: validator,
+        date_created: new Date(),
+        user_id: userId
+      }
+    });
+
+    const result = await query.executeNonQueryAsync();
+    if (result.affectedRows === 1) {
+      return true;
+    } else {
+      console.error('Unable to update session date_created');
       return false;
     }
   }
@@ -353,8 +544,9 @@ export class AuthClient {
         lname: rows.results[0].lname,
         fname: rows.results[0].fname
       })
+    } else {
+      return undefined;
     }
-    return undefined;
   }
 
   private async _createUserSaltKey(user: UserIdentity, dbconn: mysql.PoolConnection) {
