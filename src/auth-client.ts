@@ -2,15 +2,13 @@ import crypto from 'crypto'
 import mysql from 'mysql';
 import { MySqlQuery } from './mysql-query';
 import { IUserInfo } from './classes/user-info';
-import { UserInfo, userInfo } from 'os';
 import { UserIdentity } from './classes/user-identity';
-import e from 'express';
 import { ILoginRequest } from './classes/login-request';
-import { generatePasswordHash, generateSalt, generateSessionToken } from './auth-crypto';
+import { generatePasswordHash, generateSalt, generateSessionToken, randomBytes } from './auth-crypto';
 import { IdentityToken } from './classes/identity-token';
-import { Request } from 'express-serve-static-core';
 import { ILoginResponse } from './classes/login-response';
 import { IAuthClientOptions } from './classes/auth-client-options';
+import { IPasswordResetPayload } from './classes/password-reset-payload';
 
 export class AuthClient {
   public dbname: string = 'auth_server';
@@ -27,10 +25,12 @@ export class AuthClient {
     passwordStore: 'auth_user_password_store',
     hashSaltStore: 'auth_hash_salt_store',
     userRoleStore: 'account_user_roles',
-    sessionTokenStore: 'auth_session_token_store'
+    sessionTokenStore: 'auth_session_token_store',
+    passResetKeyStore: 'auth_pass_reset_store'
   }
 
   private readonly concurrentSessions: number | undefined;
+  private readonly emailRegex = /^(([^<>()\[\]\\.,;:\s@"]+(\.[^<>()\[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/;
 
   constructor(init?: IAuthClientOptions) {
     if (init) {
@@ -347,6 +347,70 @@ export class AuthClient {
     }
   }
 
+  public async CreatePasswordResetKey(email: string) {
+    if (!this.emailRegex.test(email)) {
+      console.error('Supplied email is improperly formatted');
+      return;
+    }
+
+    if (email.length > 60) {
+      console.error('Email length must be shorter than 60 characters');
+      return;
+    }
+
+    const dbconn = await this.getConnection();
+    const user = await this._getUser(email, dbconn);
+    if (!user) {
+      console.error('No user matching supplied email');
+      return;
+    }
+
+    const key = await this._createPasswordResetKey(email, dbconn);
+    dbconn.release();
+    return key ? key : undefined;
+  }
+
+  public async ResetPassword(payload: IPasswordResetPayload) {
+    if (!payload) {
+      console.error('No payload supplied');
+      return;
+    }
+    if (!payload.email) {
+      console.error('No email supplied');
+      return;
+    }
+    if (!payload.password) {
+      console.error('No password supplied');
+      return;
+    }
+    if (!payload.secret) {
+      console.error('No reset key supplied');
+      return;
+    }
+    if (!this.emailRegex.test(payload.email)) {
+      console.error('Supplied email is improperly formatted');
+      return;
+    }
+    if (payload.email.length > 60) {
+      console.error('Email length must be shorter than 60 characters');
+      return;
+    }
+
+    const dbconn = await this.getConnection();
+
+    const resetResult = await this._resetPassword(payload, dbconn);
+    dbconn.release();
+    return resetResult;
+  }
+
+  public async GetAccountInfo(user: UserIdentity) {
+    const dbconn = await this.getConnection();
+
+    const userInfo = await this._getUserInfo(user, dbconn);
+
+    dbconn.release();
+    return userInfo;
+  }
 
 
   /// PRIVATE METHODS
@@ -362,6 +426,140 @@ export class AuthClient {
         return reject(new Error('Unable to connect to authentication server instance'));
       }
     });
+  }
+
+  private async _getUserInfo(user: UserIdentity, dbconn: mysql.PoolConnection): Promise<IUserInfo | undefined> {
+    const qString = `SELECT * FROM ${this.tableNames.userTable} WHERE id=@id`;
+    const query = new MySqlQuery(qString, dbconn, {
+      parameters: {
+        id: user.id
+      }
+    });
+
+    const rows = await query.executeQueryAsync();
+    if (rows.results && rows.results.length > 0) {
+      return {
+        username: rows.results[0].username,
+        email: rows.results[0].email,
+        email_verfified: rows.results[0].email_verfified,
+        fname: rows.results[0].fname,
+        lname: rows.results[0].lname,
+        address: rows.results[0].address1,
+        address2: rows.results[0].address2,
+        country: rows.results[0].country,
+        state: rows.results[0].state,
+        city: rows.results[0].city,
+        zip: rows.results[0].zip,
+        company_name: rows.results[0].company_name,
+        job_title: rows.results[0].job_title,
+        date_created: rows.results[0].date_created,
+        phone: rows.results[0].phone,
+        dob: rows.results[0].dob,
+        password: undefined
+      }
+    } else {
+      return;
+    }
+  }
+
+  private async _resetPassword(payload: IPasswordResetPayload, dbconn: mysql.PoolConnection) {
+
+    // Get the count of non expired matching password reset keys
+    let qString = `SELECT COUNT(id) FROM ${this.tableNames.passResetKeyStore} WHERE email=@email AND reset_key=@reset_key AND date_created > NOW() - 1;`;
+    let query = new MySqlQuery(qString, dbconn, {
+      parameters: {
+        email: payload.email,
+        reset_key: payload.secret
+      }
+    });
+
+    const count = parseInt(await query.executeScalarAsync(), 10);
+    if (count > 0) {
+
+      // Get the corresponding user according to the supplied email
+      const user = await this._getUser(payload.email, dbconn);
+      if (user && user.id) {
+
+        // Delete the existing password
+
+        qString = `DELETE FROM ${this.tableNames.passwordStore} WHERE user_id=@user_id`;
+        query = new MySqlQuery(qString, dbconn, {
+          parameters: {
+            user_id: user.id
+          }
+        });
+
+        const passDelResult = await query.executeNonQueryAsync();
+        if (!passDelResult.affectedRows) {
+          console.error('Unable to delete password corresponding to the user specified');
+          return false;
+        }
+
+        qString = `DELETE FROM ${this.tableNames.hashSaltStore} WHERE user_id=@user_id`;
+        query = new MySqlQuery(qString, dbconn, {
+          parameters: {
+            user_id: user.id
+          }
+        });
+
+        const hashDelResult = await query.executeNonQueryAsync();
+        if (!hashDelResult.affectedRows) {
+          console.error('Unable to delete the hash salt corresponding to the user specified');
+          return false;
+        }
+
+        const salt = await generateSalt();
+        const storeResult = await this._storeUserPassword(user.id, payload.password, salt, dbconn);
+
+        if (storeResult) {
+          qString = `DELETE FROM ${this.tableNames.passResetKeyStore} WHERE email=@email`;
+          query = new MySqlQuery(qString, dbconn, {
+            parameters: {
+              email: payload.email
+            }
+          });
+
+          const resetDelResult = await query.executeNonQueryAsync();
+
+          if (!resetDelResult.affectedRows) {
+            console.error('Unable to delete existing password reset keys');
+          }
+
+          return true;
+
+        } else {
+          console.error('Unable to save user password');
+          return false;
+        }
+
+
+      } else {
+        console.error('No matching user found corresponding to email');
+        return false;
+      }
+    } else {
+      console.error('No matching reset keys found');
+      return false;
+    }
+  }
+
+  private async _createPasswordResetKey(email: string, dbconn: mysql.PoolConnection) {
+    const key = await randomBytes(64);
+    const qString = `INSERT INTO ${this.tableNames.passResetKeyStore} (email, reset_key, date_created) VALUES (@email, @reset_key, @date_created)`;
+    const query = new MySqlQuery(qString, dbconn, {
+      parameters: {
+        email: email,
+        reset_key: key,
+        date_created: new Date()
+      }
+    });
+
+    const result = await query.executeNonQueryAsync();
+    if (result.affectedRows === 1) {
+      return key;
+    } else {
+      console.error('Unable to insert key into database');
+    }
   }
 
   private async _destroyUserSession(userId: number, sessionToken: string, dbconn: mysql.PoolConnection) {

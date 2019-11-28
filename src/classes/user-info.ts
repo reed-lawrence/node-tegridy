@@ -1,9 +1,9 @@
 export interface IUserInfo {
   fname?: string;
   lname?: string;
-  username: string;
-  password: string;
-  email: string;
+  username?: string;
+  password?: string;
+  email?: string;
   email_verfified?: boolean;
   address?: string;
   address2?: string;
