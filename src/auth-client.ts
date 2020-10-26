@@ -35,13 +35,15 @@ export class AuthClient {
   public pool: mysql.Pool | undefined;
 
   public readonly tableNames = {
-    forgeryTokenStore: 'auth_forgery_token_store',
-    userTable: 'account_user_info',
-    passwordStore: 'auth_user_password_store',
-    hashSaltStore: 'auth_hash_salt_store',
-    userRoleStore: 'account_user_roles',
-    sessionTokenStore: 'auth_session_token_store',
-    passResetKeyStore: 'auth_pass_reset_store'
+    emailVerifications: 'auth_email_verifications',
+    forgeryTokenStore: 'auth_forgery_tokens',
+    hashSaltStore: 'auth_hash_salts',
+    passResetKeyStore: 'auth_password_reset_requests',
+    passwordStore: 'auth_passwords',
+    roles: 'auth_roles',
+    sessionTokenStore: 'auth_session_tokens',
+    userRoleStore: 'auth_user_roles',
+    userTable: 'auth_users',
   }
 
   /**
@@ -99,7 +101,7 @@ export class AuthClient {
     console.log('initializeConnection called');
 
     if (requestTokenFromHeaders) {
-      const qString = `DELETE FROM ${this.tableNames.forgeryTokenStore} WHERE [session_token]=@session_token`;
+      const qString = `DELETE FROM ${this.tableNames.forgeryTokenStore} WHERE session_token=@session_token`;
 
       const query = new MySqlQuery(qString, dbconn, { parameters: { session_token: requestTokenFromHeaders } });
       await query.executeNonQueryAsync();
