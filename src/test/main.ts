@@ -7,8 +7,8 @@ const client = new AuthClient({
 });
 
 const main = async () => {
-  await client.start();
-  await client.connect();
+  await client.Start();
+  await client.Connect();
 
   return;
 }

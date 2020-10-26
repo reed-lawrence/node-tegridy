@@ -11,6 +11,21 @@ import { IAuthClientOptions } from './classes/auth-client-options';
 import { IPasswordResetPayload } from './classes/password-reset-payload';
 
 export class AuthClient {
+  
+  constructor(init?: IAuthClientOptions) {
+    if (init) {
+      if (init.user) { this.user = init.user; }
+      if (init.dbname) { this.dbname = init.dbname; }
+      if (init.host) { this.host = init.host; }
+      if (init.password) { this.password = init.password; }
+      if (init.port) { this.port = init.port; }
+      if (init.opts) {
+        if (init.opts.concurrent_sessions) { this.concurrent_sessions = init.opts.concurrent_sessions; }
+        if (init.opts.hash_iterations) { this.hash_iterations = init.opts.hash_iterations; }
+      }
+    }
+  }
+
   public dbname: string = 'auth_server';
   public host: string = 'localhost';
   public user: string = 'root';
@@ -29,28 +44,27 @@ export class AuthClient {
     passResetKeyStore: 'auth_pass_reset_store'
   }
 
-  private readonly concurrentSessions: number | undefined;
-  private readonly emailRegex = /^(([^<>()\[\]\\.,;:\s@"]+(\.[^<>()\[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/;
+  /**
+     * Number of times a password will be hashed via pbkdf2 cyrptography
+     * (Default: 100)
+     */
+  private readonly hash_iterations: number = 100;
 
-  constructor(init?: IAuthClientOptions) {
-    if (init) {
-      if (init.user) { this.user = init.user; }
-      if (init.dbname) { this.dbname = init.dbname; }
-      if (init.host) { this.host = init.host; }
-      if (init.password) { this.password = init.password; }
-      if (init.port) { this.port = init.port; }
-      if (init.opts && init.opts.concurrentSessions) {
-        this.concurrentSessions = init.opts.concurrentSessions;
-      }
-    }
-  }
+  /**
+     * Number of concurrent sessions allowed to be open. The oldest session token 
+     * will be removed when the session count exceeds the specified number.
+     * (Default: unlimited)
+     */
+  private readonly concurrent_sessions: number | undefined;
+  
+  private readonly email_regex = /^(([^<>()\[\]\\.,;:\s@"]+(\.[^<>()\[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/;
 
   /// PUBLIC METHODS
 
   /**
    * Instruct the AuthClient to initiate connection with the database 
    */
-  public async start() {
+  public async Start() {
     const options: mysql.PoolConfig = {
       host: this.host,
       user: this.user,
@@ -79,7 +93,7 @@ export class AuthClient {
    * @param requestTokenFromHeaders (optional) Corresponds to the __requesttoken to be passed from each requests headers
    * @returns the string token
    */
-  public async connect(requestTokenFromHeaders?: string): Promise<string> {
+  public async Connect(requestTokenFromHeaders?: string): Promise<string> {
     const dbconn = await this.getConnection();
 
     console.log('initializeConnection called');
@@ -113,7 +127,7 @@ export class AuthClient {
    * @param userInfo the user information to register
    * @returns The identity of the newly registered user
    */
-  public async register(userInfo: IUserInfo) {
+  public async Register(userInfo: IUserInfo) {
     if (!userInfo.email) {
       throw new Error('Email not provided in register method');
     }
@@ -163,7 +177,7 @@ export class AuthClient {
    * @param loginRequest The login request to be attempted
    * @returns The identity of the user and session token or undefined if invalid login
    */
-  public async login(sessionToken?: string, loginRequest?: Partial<ILoginRequest>): Promise<ILoginResponse | undefined> {
+  public async Login(sessionToken?: string, loginRequest?: Partial<ILoginRequest>): Promise<ILoginResponse | undefined> {
     const dbconn = await this.getConnection();
 
     /**
@@ -172,7 +186,7 @@ export class AuthClient {
      *    - If session token is valid, update the token date and return the user
      */
     if (sessionToken) {
-      const user = await this.validateSession(sessionToken, dbconn);
+      const user = await this.ValidateSession(sessionToken, dbconn);
       if (user) {
         await this._updateUserSession(user.id, sessionToken, dbconn);
         await this._cleanUserSessions(user.id, dbconn);
@@ -201,7 +215,7 @@ export class AuthClient {
       const user = await this._getUser(loginRequest.email, dbconn);
       if (user && user.id) {
         const salt: string = await this._getStoredSaltHash(user.id, dbconn);
-        const passHash: string = await generatePasswordHash(loginRequest.password, salt);
+        const passHash: string = await generatePasswordHash(loginRequest.password, salt, this.hash_iterations);
         console.log(passHash);
 
         const qString = `SELECT COUNT(user_id) FROM ${this.tableNames.passwordStore} WHERE password=@password AND user_id=@user_id`;
@@ -251,7 +265,7 @@ export class AuthClient {
    * Validate the request token of a request
    * @param requestToken The token gathered from the header of the request
    */
-  public async validateRequest(requestToken: string) {
+  public async ValidateRequest(requestToken: string) {
     const dbconn = await this.getConnection();
     const qString = `SELECT COUNT(id) FROM ${this.tableNames.forgeryTokenStore} WHERE session_token=@session_token`;
     const query = new MySqlQuery(qString, dbconn, {
@@ -265,7 +279,12 @@ export class AuthClient {
     return count > 0;
   }
 
-  public async validateSession(sessionToken: string, dbconn?: mysql.PoolConnection) {
+  /**
+   * Validate the current user session
+   * @param sessionToken the session token to validate
+   * @param dbconn (optional) MySQL connection to utilize. If none is supplied, one will be created.
+   */
+  public async ValidateSession(sessionToken: string, dbconn?: mysql.PoolConnection) {
     if (sessionToken.length !== 512) {
       console.error('Session token invalid: Code 1');
       return undefined;
@@ -328,9 +347,13 @@ export class AuthClient {
     return user;
   }
 
-  public async logout(sessionToken: string) {
+  /**
+   * Destroys the current user session
+   * @param sessionToken the session token to destroy
+   */
+  public async Logout(sessionToken: string) {
     const dbconn = await this.getConnection();
-    const user = await this.validateSession(sessionToken, dbconn);
+    const user = await this.ValidateSession(sessionToken, dbconn);
     if (user) {
       const destroyResult: boolean = await this._destroyUserSession(user.id, sessionToken, dbconn);
       dbconn.release();
@@ -348,7 +371,7 @@ export class AuthClient {
   }
 
   public async CreatePasswordResetKey(email: string) {
-    if (!this.emailRegex.test(email)) {
+    if (!this.email_regex.test(email)) {
       console.error('Supplied email is improperly formatted');
       return;
     }
@@ -387,7 +410,7 @@ export class AuthClient {
       console.error('No reset key supplied');
       return;
     }
-    if (!this.emailRegex.test(payload.email)) {
+    if (!this.email_regex.test(payload.email)) {
       console.error('Supplied email is improperly formatted');
       return;
     }
@@ -597,7 +620,7 @@ export class AuthClient {
   }
 
   private async _cleanUserSessions(userId: number, dbconn: mysql.PoolConnection) {
-    if (this.concurrentSessions) {
+    if (this.concurrent_sessions) {
       let qString = `SELECT COUNT(user_id) FROM ${this.tableNames.sessionTokenStore} WHERE user_id=@user_id`;
       let query = new MySqlQuery(qString, dbconn, {
         parameters: {
@@ -605,12 +628,12 @@ export class AuthClient {
         }
       });
       const count: number = parseInt(await query.executeScalarAsync(), 10);
-      if (count > this.concurrentSessions) {
+      if (count > this.concurrent_sessions) {
         const tokens = await this._getUserIdentityTokens(userId, dbconn);
         tokens.sort((a, b) => a.date_created < b.date_created ? 1 : a.date_created > b.date_created ? -1 : 0);
 
         const toRemove = new Array<IdentityToken>();
-        for (let i = this.concurrentSessions; i < tokens.length; i++) {
+        for (let i = this.concurrent_sessions; i < tokens.length; i++) {
           toRemove.push(tokens[i]);
         }
 
@@ -762,7 +785,7 @@ export class AuthClient {
   }
 
   private async _storeUserPassword(userId: number, password: string, salt: string, dbconn: mysql.PoolConnection) {
-    const passwordHash: string = await generatePasswordHash(password, salt);
+    const passwordHash: string = await generatePasswordHash(password, salt, this.hash_iterations);
     console.log('Password Length:', passwordHash.length);
     console.log('Salt Length:', salt.length);
 

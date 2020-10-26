@@ -1,8 +1,8 @@
 import crypto from 'crypto';
 
-export async function generatePasswordHash(password: string, salt: string) {
+export async function generatePasswordHash(password: string, salt: string, iterations: number) {
   return new Promise<string>((resolve, reject) => {
-    crypto.pbkdf2(password, Buffer.from(salt, 'base64'), 25000, 96, 'sha1', (err, key) => {
+    crypto.pbkdf2(password, Buffer.from(salt, 'base64'), iterations, 96, 'sha1', (err, key) => {
       if (err) {
         return reject(err);
       }

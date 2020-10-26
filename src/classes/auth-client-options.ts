@@ -34,6 +34,12 @@ export interface IAuthClientOptions {
      * will be removed when the session count exceeds the specified number.
      * (Default: unlimited)
      */
-    concurrentSessions?: number;
+    concurrent_sessions?: number;
+
+    /**
+     * Number of times a password will be hashed via pbkdf2 cyrptography
+     * (Default: 100)
+     */
+    hash_iterations?: number;
   }
 }

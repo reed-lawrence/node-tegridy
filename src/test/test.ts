@@ -30,7 +30,7 @@ describe('Crypto', () => {
       const expectedLength = 128;
 
       // Act
-      const actualHash = await generatePasswordHash(password, saltStr);
+      const actualHash = await generatePasswordHash(password, saltStr, 25000);
 
       // Assert
       assert.equal(actualHash, expectedHash, 'Password hashes are not equal');
@@ -51,7 +51,76 @@ describe('Crypto', () => {
         assert.equal(payload.selector.indexOf('+'), -1, 'Selector contains +');
         assert.equal(payload.token.indexOf('+'), -1, 'Token contains +');
       }
-    })
+    });
+
+    it('Password hash-speed benchmark', async () => {
+      // Arrange
+      const saltStr = 'jQrsqx6YzEA7rUIl5QxWib8nQ++dMHbg';
+      const password = '123456789';
+      const expectedHash = 'c89KCtUBxMiDi+5nJeX8DduiE6/+J6sNIq7deca9AlHSTehIYrN8cg2yg0z40oc/UJEujlx1IuWxeInnxEOg56JSfDYlMcIIHQUlSu2LyZkS9vLX1J48RKlik04rPc6z';
+      const expectedLength = 128;
+
+      // Act
+      const actualHash = await generatePasswordHash(password, saltStr, 25000);
+
+      // Assert
+      // None, purely for speed purposes
+
+    });
+  });
+
+  describe('Hash Benchmarks', () => {
+
+    it('1 iteration', async () => {
+      // Arrange
+      const iterations = 1;
+      const saltStr = 'jQrsqx6YzEA7rUIl5QxWib8nQ++dMHbg';
+      const password = '123456789';
+
+      // Act
+      const actualHash = await generatePasswordHash(password, saltStr, iterations);
+    });
+
+    it('100 iteration', async () => {
+      // Arrange
+      const iterations = 100;
+      const saltStr = 'jQrsqx6YzEA7rUIl5QxWib8nQ++dMHbg';
+      const password = '123456789';
+
+      // Act
+      const actualHash = await generatePasswordHash(password, saltStr, iterations);
+    });
+
+    it('1,000 iterations', async () => {
+      // Arrange
+      const iterations = 1000;
+      const saltStr = 'jQrsqx6YzEA7rUIl5QxWib8nQ++dMHbg';
+      const password = '123456789';
+
+      // Act
+      const actualHash = await generatePasswordHash(password, saltStr, iterations);
+    });
+
+    it('10,000 iterations', async () => {
+      // Arrange
+      const iterations = 10000;
+      const saltStr = 'jQrsqx6YzEA7rUIl5QxWib8nQ++dMHbg';
+      const password = '123456789';
+
+      // Act
+      const actualHash = await generatePasswordHash(password, saltStr, iterations);
+    });
+
+    it('100,000 iterations', async () => {
+      // Arrange
+      const iterations = 100000;
+      const saltStr = 'jQrsqx6YzEA7rUIl5QxWib8nQ++dMHbg';
+      const password = '123456789';
+
+      // Act
+      const actualHash = await generatePasswordHash(password, saltStr, iterations);
+    });
+
   });
 
 });
