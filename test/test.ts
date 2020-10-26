@@ -1,7 +1,7 @@
 import { describe } from 'mocha';
 import assert from 'assert';
-import { AuthClient } from '../auth-client';
-import { generatePasswordHash, generateSalt, generateSessionToken } from '../auth-crypto';
+import { AuthClient } from '../src/auth-client';
+import { generatePasswordHash, generateSalt, generateSessionToken } from '../src/auth-crypto';
 
 describe('Crypto', () => {
 

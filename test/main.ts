@@ -1,4 +1,4 @@
-import { AuthClient } from "../auth-client";
+import { AuthClient } from "../src/auth-client";
 
 const client = new AuthClient({
   dbname: 'auth_server',
