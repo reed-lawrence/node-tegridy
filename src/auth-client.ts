@@ -1,6 +1,6 @@
 import crypto from 'crypto'
 import { Pool, PoolConnection } from 'mysql';
-import { MySqlQuery } from './mysql-query';
+import { IQueryOptions, MySqlQuery } from '@reed-lawrence/mysql-query';
 import { IUserInfo } from './classes/user-info';
 import { UserIdentity } from './classes/user-identity';
 import { ILoginRequest } from './classes/login-request';
@@ -53,6 +53,16 @@ export class AuthClient {
 
   private readonly unique_fields: (keyof IUserInfo)[] = ['email'];
 
+  private queryFormat = (query: string, values: any) => {
+    if (!values) return query;
+    return query.replace(/[@](\w+)/g, (txt, key) => {
+      if (values.hasOwnProperty(key)) {
+        return escape(values[key]);
+      }
+      return txt;
+    });
+  };
+
   public readonly email_regex = /^(([^<>()\[\]\\.,;:\s@"]+(\.[^<>()\[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/;
 
   private async getConnection() {
@@ -87,16 +97,27 @@ export class AuthClient {
       if (requestTokenFromHeaders) {
         const qString = `DELETE FROM ${this.tableNames.forgeryTokenStore} WHERE session_token=@session_token`;
 
-        const query = new MySqlQuery(qString, dbconn, { parameters: { session_token: requestTokenFromHeaders } });
-        await query.executeNonQueryAsync();
+        const query = new MySqlQuery(qString, dbconn, {
+          parameters: {
+            session_token: requestTokenFromHeaders
+          },
+          queryFormat: this.queryFormat
+        });
+        await query.executeNonQuery();
       }
 
       const token = await randomChars(196);
 
       const qString = `INSERT INTO ${this.tableNames.forgeryTokenStore} (session_token, date_created) VALUES (@session_token, @date_created)`;
 
-      const query = new MySqlQuery(qString, dbconn, { parameters: { session_token: token, date_created: new Date() } });
-      const result = await query.executeNonQueryAsync();
+      const query = new MySqlQuery(qString, dbconn, {
+        parameters: {
+          session_token: token,
+          date_created: new Date()
+        },
+        queryFormat: this.queryFormat
+      });
+      const result = await query.executeNonQuery();
 
       dbconn.release();
 
@@ -123,10 +144,11 @@ export class AuthClient {
       const query = new MySqlQuery(qString, dbconn, {
         parameters: {
           session_token: requestToken
-        }
+        },
+        queryFormat: this.queryFormat
       });
 
-      const count: number = await query.executeScalarAsync();
+      const count: number = await query.executeScalar();
       dbconn.release();
       return count > 0;
 
@@ -164,10 +186,11 @@ export class AuthClient {
       let query = new MySqlQuery(qString, dbconn, {
         parameters: {
           selector: selector
-        }
+        },
+        queryFormat: this.queryFormat
       });
 
-      const rowId: number = parseInt(await query.executeScalarAsync(), 10);
+      const rowId: number = parseInt(await query.executeScalar(), 10);
       if (!rowId) {
         dbconn.release();
         throw new Error('Cannot find a matching row corresponding to the given token selector');
@@ -177,10 +200,11 @@ export class AuthClient {
       query = new MySqlQuery(qString, dbconn, {
         parameters: {
           id: rowId
-        }
+        },
+        queryFormat: this.queryFormat
       });
 
-      const qResult = await query.executeQueryAsync();
+      const qResult = await query.executeQuery();
       if (!qResult.results[0]) {
         dbconn.release();
         throw new Error('No rows returned corresponding to the Id returned from the given token selector');
@@ -270,10 +294,11 @@ export class AuthClient {
             parameters: {
               password: passHash,
               user_id: user.id,
-            }
+            },
+            queryFormat: this.queryFormat
           });
 
-          const userCount: number = await query.executeScalarAsync();
+          const userCount: number = await query.executeScalar();
           if (userCount === 1) {
             await user.getUserRoles(this.tableNames.userRoleStore, dbconn);
 
@@ -412,12 +437,9 @@ export class AuthClient {
    * Get the full account info related to the User
    * @param arg UserIdentity or User Id in string form
    */
-  public async GetAccountInfo(arg: UserIdentity | string) {
-    let userId = 0;
-    if (typeof arg === 'object') {
-      userId = arg.id;
-    } else if (typeof arg === 'string') {
-      userId = parseInt(arg);
+  public async GetAccountInfo(userId: number) {
+    if (typeof userId !== 'number') {
+      throw new Error('User Id must be numeric type');
     }
 
     if (userId > 0) {
@@ -687,10 +709,11 @@ export class AuthClient {
         user_id: userId,
         validator: validator,
         selector: selector
-      }
+      },
+      queryFormat: this.queryFormat
     });
 
-    const deleteResult = await query.executeNonQueryAsync();
+    const deleteResult = await query.executeNonQuery();
 
     // Ensure there are no matching sessions
     qString = `SELECT COUNT(id) FROM ${this.tableNames.sessionTokenStore} WHERE user_id=@user_id AND validator=@validator AND selector=@selector`;
@@ -699,10 +722,11 @@ export class AuthClient {
         user_id: userId,
         validator: validator,
         selector: selector
-      }
+      },
+      queryFormat: this.queryFormat
     });
 
-    const numrows: number = parseInt(await query.executeScalarAsync(), 10);
+    const numrows: number = parseInt(await query.executeScalar(), 10);
     if (numrows === 0) {
       return true;
     } else {
@@ -716,9 +740,10 @@ export class AuthClient {
       let query = new MySqlQuery(qString, dbconn, {
         parameters: {
           user_id: userId
-        }
+        },
+        queryFormat: this.queryFormat
       });
-      const count: number = parseInt(await query.executeScalarAsync(), 10);
+      const count: number = parseInt(await query.executeScalar(), 10);
       if (count > this.concurrent_sessions) {
         const tokens = await this._getUserIdentityTokens(userId, dbconn);
         tokens.sort((a, b) => a.date_created < b.date_created ? 1 : a.date_created > b.date_created ? -1 : 0);
@@ -733,10 +758,11 @@ export class AuthClient {
           query = new MySqlQuery(qString, dbconn, {
             parameters: {
               id: token.id
-            }
+            },
+            queryFormat: this.queryFormat
           });
 
-          await query.executeNonQueryAsync();
+          await query.executeNonQuery();
         }
       }
     }
@@ -750,10 +776,11 @@ export class AuthClient {
     const query = new MySqlQuery(qString, dbconn, {
       parameters: {
         user_id: userId
-      }
+      },
+      queryFormat: this.queryFormat
     });
 
-    const rows = await query.executeQueryAsync();
+    const rows = await query.executeQuery();
     if (rows.results && rows.results.length > 0) {
       for (const row of rows.results) {
         tokenList.push(new IdentityToken({
@@ -776,10 +803,11 @@ export class AuthClient {
         selector: selector,
         validator: validator,
         date_created: new Date()
-      }
+      },
+      queryFormat: this.queryFormat
     });
 
-    const saveResult = await query.executeNonQueryAsync();
+    const saveResult = await query.executeNonQuery();
     if (saveResult.affectedRows === 1) {
       return true;
     } else {
@@ -803,10 +831,11 @@ export class AuthClient {
         validator: validator,
         date_created: new Date(),
         user_id: userId
-      }
+      },
+      queryFormat: this.queryFormat
     });
 
-    const result = await query.executeNonQueryAsync();
+    const result = await query.executeNonQuery();
     if (result.affectedRows === 1) {
       return true;
     } else {
@@ -824,10 +853,11 @@ export class AuthClient {
     const query = new MySqlQuery(qString, dbconn, {
       parameters: {
         id: userId
-      }
+      },
+      queryFormat: this.queryFormat
     });
 
-    const rows = await query.executeQueryAsync();
+    const rows = await query.executeQuery();
     if (rows.results && rows.results.length > 0) {
       return {
         username: rows.results[0].username,
@@ -856,18 +886,23 @@ export class AuthClient {
   private async _getUser(email: string, dbconn: PoolConnection): Promise<UserIdentity>
   private async _getUser(userId: number, dbconn: PoolConnection): Promise<UserIdentity>
   private async _getUser(arg: number | string, dbconn: PoolConnection) {
-    const query = new MySqlQuery('', dbconn);
+    let qString = '';
+    const qOptions: IQueryOptions = { queryFormat: this.queryFormat, parameters: {} };
+
     if (typeof arg === 'number') {
-      query.qString = `SELECT id, email, username, fname, lname FROM ${this.tableNames.userTable} WHERE id=@id`;
-      query.parameters.id = arg;
+      qString = `SELECT id, email, username, fname, lname FROM ${this.tableNames.userTable} WHERE id=@id`;
+      qOptions.parameters = { id: arg };
+
     } else if (typeof arg === 'string') {
-      query.qString = `SELECT id, email, username, fname, lname FROM ${this.tableNames.userTable} WHERE email=@email`;
-      query.parameters.email = arg;
+      qString = `SELECT id, email, username, fname, lname FROM ${this.tableNames.userTable} WHERE email=@email`;
+      qOptions.parameters = { email: arg };
     } else {
       throw new Error('typeof arg should be number or string');
     }
 
-    const rows = await query.executeQueryAsync();
+    const query = new MySqlQuery(qString, dbconn, qOptions);
+
+    const rows = await query.executeQuery();
     if (rows.results && rows.results.length > 0) {
       return new UserIdentity({
         id: rows.results[0].id,
@@ -905,10 +940,11 @@ export class AuthClient {
         phone: userInfo.phone,
         dob: userInfo.dob,
         email_verified: 0
-      }
+      },
+      queryFormat: this.queryFormat
     });
 
-    const qResult = await query.executeNonQueryAsync();
+    const qResult = await query.executeNonQuery();
     const userId = qResult.insertId;
 
     return await this._getUser(userId, dbconn);
@@ -934,18 +970,24 @@ export class AuthClient {
         phone: userInfo.phone,
         dob: userInfo.dob,
         user_id: userId
-      }
+      },
+      queryFormat: this.queryFormat
     });
 
-    const qResult = await query.executeNonQueryAsync();
+    const qResult = await query.executeNonQuery();
 
     return await this._getUser(userId, dbconn);
   }
 
   private async _isUniqueUsername(username: string, dbconn: PoolConnection) {
     const qString = `SELECT COUNT(id) AS user_count FROM ${this.tableNames.userTable} WHERE username=@username`;
-    const query = new MySqlQuery(qString, dbconn, { parameters: { username } });
-    const results = await query.executeScalarAsync<number>();
+    const query = new MySqlQuery(qString, dbconn, {
+      parameters: {
+        username
+      },
+      queryFormat: this.queryFormat
+    });
+    const results = await query.executeScalar<number>();
     return results === 0;
   }
 
@@ -955,10 +997,11 @@ export class AuthClient {
       parameters: {
         username,
         user_id: userId
-      }
+      },
+      queryFormat: this.queryFormat
     });
 
-    const qResult = await query.executeNonQueryAsync();
+    const qResult = await query.executeNonQuery();
 
     return await this._getUser(userId, dbconn);
   }
@@ -975,10 +1018,11 @@ export class AuthClient {
       parameters: {
         email: payload.email,
         reset_key: payload.secret
-      }
+      },
+      queryFormat: this.queryFormat
     });
 
-    const count = parseInt(await query.executeScalarAsync(), 10);
+    const count = parseInt(await query.executeScalar(), 10);
     if (count > 0) {
 
       // Get the corresponding user according to the supplied email
@@ -991,10 +1035,11 @@ export class AuthClient {
         query = new MySqlQuery(qString, dbconn, {
           parameters: {
             user_id: user.id
-          }
+          },
+          queryFormat: this.queryFormat
         });
 
-        const passDelResult = await query.executeNonQueryAsync();
+        const passDelResult = await query.executeNonQuery();
         if (!passDelResult.affectedRows) {
           console.error('Unable to delete password corresponding to the user specified');
           return false;
@@ -1004,10 +1049,11 @@ export class AuthClient {
         query = new MySqlQuery(qString, dbconn, {
           parameters: {
             user_id: user.id
-          }
+          },
+          queryFormat: this.queryFormat
         });
 
-        const hashDelResult = await query.executeNonQueryAsync();
+        const hashDelResult = await query.executeNonQuery();
         if (!hashDelResult.affectedRows) {
           console.error('Unable to delete the hash salt corresponding to the user specified');
           return false;
@@ -1021,10 +1067,11 @@ export class AuthClient {
           query = new MySqlQuery(qString, dbconn, {
             parameters: {
               email: payload.email
-            }
+            },
+            queryFormat: this.queryFormat
           });
 
-          const resetDelResult = await query.executeNonQueryAsync();
+          const resetDelResult = await query.executeNonQuery();
 
           if (!resetDelResult.affectedRows) {
             console.error('Unable to delete existing password reset keys');
@@ -1056,10 +1103,11 @@ export class AuthClient {
         email: email,
         reset_key: key,
         date_created: new Date()
-      }
+      },
+      queryFormat: this.queryFormat
     });
 
-    const result = await query.executeNonQueryAsync();
+    const result = await query.executeNonQuery();
     if (result.affectedRows === 1) {
       return key;
     } else {
@@ -1072,10 +1120,11 @@ export class AuthClient {
     const query = new MySqlQuery(qString, dbconn, {
       parameters: {
         user_id: userId
-      }
+      },
+      queryFormat: this.queryFormat
     });
 
-    const saltString: string = await query.executeScalarAsync();
+    const saltString: string = await query.executeScalar();
     return saltString;
   }
 
@@ -1086,10 +1135,11 @@ export class AuthClient {
       parameters: {
         user_id: user.id,
         hash_salt: salt
-      }
+      },
+      queryFormat: this.queryFormat
     });
 
-    const results = await query.executeNonQueryAsync();
+    const results = await query.executeNonQuery();
     return results.affectedRows === 1 ? salt : undefined;
   }
 
@@ -1103,10 +1153,11 @@ export class AuthClient {
       parameters: {
         user_id: userId,
         password: passwordHash
-      }
+      },
+      queryFormat: this.queryFormat
     });
 
-    const result = await query.executeNonQueryAsync();
+    const result = await query.executeNonQuery();
 
     return result.affectedRows === 1 ? true : false;
   }
@@ -1117,8 +1168,11 @@ export class AuthClient {
 
   private async _isUniqueEmail(email: string, dbconn: PoolConnection) {
     const qString = `SELECT COUNT(id) AS user_count FROM ${this.tableNames.userTable} WHERE email=@email`;
-    const query = new MySqlQuery(qString, dbconn, { parameters: { email } });
-    const results = await query.executeScalarAsync<number>();
+    const query = new MySqlQuery(qString, dbconn, {
+      parameters: { email },
+      queryFormat: this.queryFormat
+    });
+    const results = await query.executeScalar<number>();
     return results === 0;
   }
 
@@ -1128,10 +1182,11 @@ export class AuthClient {
       parameters: {
         email,
         user_id: userId
-      }
+      },
+      queryFormat: this.queryFormat
     });
 
-    const qResult = await query.executeNonQueryAsync();
+    const qResult = await query.executeNonQuery();
 
     return await this._getUser(userId, dbconn);
   }
@@ -1144,10 +1199,11 @@ export class AuthClient {
       parameters: {
         email,
         user_id: userId
-      }
+      },
+      queryFormat: this.queryFormat
     });
 
-    await query.executeNonQueryAsync();
+    await query.executeNonQuery();
 
     // Create the reset token
     const secret = await randomChars(64);
@@ -1159,10 +1215,11 @@ export class AuthClient {
         user_id: userId,
         secret,
         date_created: new Date()
-      }
+      },
+      queryFormat: this.queryFormat
     });
 
-    const result = await query.executeNonQueryAsync();
+    const result = await query.executeNonQuery();
     if (result.affectedRows > 0) {
       return secret;
     }
@@ -1178,10 +1235,11 @@ export class AuthClient {
         email,
         secret,
         user_id: userId
-      }
+      },
+      queryFormat: this.queryFormat
     });
 
-    const count = await query.executeScalarAsync<number>();
+    const count = await query.executeScalar<number>();
 
     if (!count) {
       throw new Error('No matching email verification keys found');
@@ -1191,10 +1249,11 @@ export class AuthClient {
     query = new MySqlQuery(qString, dbconn, {
       parameters: {
         user_id: userId
-      }
+      },
+      queryFormat: this.queryFormat
     });
 
-    let result = await query.executeNonQueryAsync();
+    let result = await query.executeNonQuery();
 
     if (!result.affectedRows) {
       throw new Error('An error occurred when attempting to update email verification flag');
@@ -1204,10 +1263,11 @@ export class AuthClient {
     query = new MySqlQuery(qString, dbconn, {
       parameters: {
         user_id: userId
-      }
+      },
+      queryFormat: this.queryFormat
     });
 
-    await query.executeNonQueryAsync();
+    await query.executeNonQuery();
 
     return this._getUserInfo(userId, dbconn);
   }
