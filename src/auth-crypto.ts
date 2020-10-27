@@ -21,18 +21,20 @@ export async function randomBytes(length: number) {
   });
 }
 
+export async function randomChars(length: number) {
+  const buffer = await randomBytes(length);
+  return buffer.toString('base64').replace(/[\/]/g, '_').replace(/[+]/g, '-');
+}
+
 export async function generateSalt(): Promise<string> {
-  return (await randomBytes(24)).toString('base64');
+  return await randomChars(24);
 }
 
 export async function generateSessionToken(): Promise<{ selector: string; token: string }> {
   const tokenLength = 372;
   const selectorLength = 12;
 
-  const tokenBuffer = await randomBytes(tokenLength);
-  const selectorBuffer = await randomBytes(selectorLength);
-
-  const tokenStr = tokenBuffer.toString('base64').replace(/[\/]/g, '_').replace(/[+]/g, '-');
-  const selectorStr = selectorBuffer.toString('base64').replace(/[\/]/g, '_').replace(/[+]/g, '-');
+  const tokenStr = await randomChars(tokenLength);
+  const selectorStr = await randomChars(selectorLength);
   return { selector: selectorStr, token: tokenStr };
 }

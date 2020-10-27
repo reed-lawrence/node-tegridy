@@ -1,28 +1,39 @@
-import mysql from 'mysql';
+import { PoolConnection, escape, FieldInfo } from "mysql";
 
 export interface IQueryOptions {
   parameters: object;
+  queryFormat: (query: string, values: any) => string;
 }
 
 export class MySqlQuery {
-  public parameters: {
-    [index: string]: any
-  } = {};
-  public qString: string;
-  private dbconn: mysql.PoolConnection;
+  private dbconn: PoolConnection;
 
-  constructor(qString: string, connection: mysql.PoolConnection, options?: Partial<IQueryOptions>) {
+  public parameters: { [index: string]: any } = {};
+  public qString: string;
+  public queryFormat = (query: string, values: any) => {
+    if (!values) return query;
+    return query.replace(/[@](\w+)/g, (txt, key) => {
+      if (values.hasOwnProperty(key)) {
+        return escape(values[key]);
+      }
+      return txt;
+    });
+  };
+
+  constructor(qString: string, connection: PoolConnection, options?: Partial<IQueryOptions>) {
     this.qString = qString;
     this.dbconn = connection;
 
     if (options) {
       if (options.parameters) this.parameters = options.parameters;
+      if (options.queryFormat) this.queryFormat = options.queryFormat;
     }
   }
 
   private queryAsync() {
-    return new Promise<{ results: any, fields: mysql.FieldInfo[] | undefined }>((resolve, reject) => {
-      this.dbconn.query(this.qString, this.parameters, (err, results, fields) => {
+    return new Promise<{ results: any, fields: FieldInfo[] | undefined }>((resolve, reject) => {
+
+      this.dbconn.query(this.queryFormat(this.qString, this.parameters), (err, results, fields) => {
         if (err) return reject(err);
         return resolve({ results, fields });
       });

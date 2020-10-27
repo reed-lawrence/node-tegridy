@@ -1,22 +1,23 @@
+import { createPool } from "mysql";
 import { AuthClient } from "../src/auth-client";
 
-const client = new AuthClient({
-  dbname: 'auth_server',
+var pool = createPool({
+  database: 'auth_server',
   user: 'root',
+  port: 3306,
   password: '2v&kJe^jf%!&jG>WiwieFReVLEeydmqGWV.o)mvp83W7,mz]rrv!rq3!C7hL6o+h',
-});
+})
+
+const client = new AuthClient(pool);
 
 const main = async () => {
-  await client.Start();
-  await client.Connect();
-
+  const token = await client.RequestForgeryToken();
+  console.log(token);
   return;
 }
 
 main().finally(() => {
-  if (client.pool) {
-    client.pool.end();
-  }
+  pool.end();
 });
 
 
