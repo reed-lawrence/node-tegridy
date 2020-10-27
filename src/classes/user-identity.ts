@@ -1,5 +1,5 @@
 import { PoolConnection } from 'mysql';
-import { MySqlQuery } from '../mysql-query';
+import { MySqlQuery } from '@reed-lawrence/mysql-query';
 
 export interface IUserIdentity {
   id: number;
@@ -38,7 +38,7 @@ export class UserIdentity implements IUserIdentity {
       }
     });
 
-    const rows = await query.executeQueryAsync();
+    const rows = await query.executeQuery();
     if (rows.results) {
       for (const row of rows.results) {
         this.roles.push(row.claim);
