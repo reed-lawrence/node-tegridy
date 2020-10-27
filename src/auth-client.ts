@@ -660,15 +660,11 @@ export class AuthClient {
   }
 
   /**
-   * Method that verifies the email associted to the user given the specified token key
-   * @param userId 
+   * Method that verifies the email associted to the user given the specified token key and email
    * @param email 
    * @param key 
    */
-  public async VerifyEmail(userId: number, email: string, key: string) {
-    if (!userId || userId <= 0) {
-      throw new Error('Invalid user id');
-    }
+  public async VerifyEmail(email: string, key: string) {
 
     if (!email) {
       throw new Error('Invalid email');
@@ -682,7 +678,8 @@ export class AuthClient {
 
     try {
 
-      const result = await this._verifyEmail(userId, email, key, dbconn);
+      const user = await this._getUser(email, dbconn);
+      const result = await this._verifyEmail(user.id, email, key, dbconn);
       dbconn.release();
       return result;
 
