@@ -548,8 +548,9 @@ export class AuthClient {
       }
 
       const key = await this._createPasswordResetKey(email, dbconn);
+
       dbconn.release();
-      return key ? key : undefined;
+      return key;
 
     } catch (error) {
 
@@ -1108,7 +1109,7 @@ export class AuthClient {
     if (result.affectedRows === 1) {
       return key;
     } else {
-      console.error('Unable to insert key into database');
+      throw new Error('Unable to insert key into database');
     }
   }
 
