@@ -852,8 +852,8 @@ export class AuthClient {
         username: rows.results[0].username,
         email: rows.results[0].email,
         email_verfified: rows.results[0].email_verfified,
-        fname: rows.results[0].fname,
-        lname: rows.results[0].lname,
+        first_name: rows.results[0].first_name,
+        last_name: rows.results[0].last_name,
         address: rows.results[0].address1,
         address2: rows.results[0].address2,
         country: rows.results[0].country,
@@ -879,11 +879,11 @@ export class AuthClient {
     const qOptions: Partial<IQueryOptions> = {};
 
     if (typeof arg === 'number') {
-      qString = `SELECT id, email, username, fname, lname FROM ${this.tableNames.userTable} WHERE id=@id`;
+      qString = `SELECT id, email, username, first_name, last_name FROM ${this.tableNames.userTable} WHERE id=@id`;
       qOptions.parameters = { id: arg };
 
     } else if (typeof arg === 'string') {
-      qString = `SELECT id, email, username, fname, lname FROM ${this.tableNames.userTable} WHERE email=@email`;
+      qString = `SELECT id, email, username, first_name, last_name FROM ${this.tableNames.userTable} WHERE email=@email`;
       qOptions.parameters = { email: arg };
     } else {
       throw new Error('typeof arg should be number or string');
@@ -896,8 +896,8 @@ export class AuthClient {
       return new UserIdentity({
         id: rows.results[0].id,
         email: rows.results[0].email,
-        lname: rows.results[0].lname,
-        fname: rows.results[0].fname
+        first_name: rows.results[0].first_name,
+        last_name: rows.results[0].last_name
       })
     } else {
       throw new Error('No user found');
@@ -905,9 +905,9 @@ export class AuthClient {
   }
 
   private async _createNewUser(userInfo: IUserInfo, dbconn: PoolConnection) {
-    const qString = `INSERT INTO ${this.tableNames.userTable} (username, email, fname, lname, 
+    const qString = `INSERT INTO ${this.tableNames.userTable} (username, email, first_name, last_name, 
       address1, address2, country, state, city, zip, company_name, job_title, 
-      date_created, phone, dob, email_verified) VALUES (@username, @email, @fname, @lname, 
+      date_created, phone, dob, email_verified) VALUES (@username, @email, @first_name, @last_name, 
         @address1, @address2, @country, @state, @city, @zip, @company_name, @job_title, 
         @date_created, @phone, @dob, @email_verified)`;
 
@@ -915,8 +915,8 @@ export class AuthClient {
       parameters: {
         username: userInfo.username,
         email: userInfo.email,
-        fname: userInfo.fname,
-        lname: userInfo.lname,
+        first_name: userInfo.first_name,
+        last_name: userInfo.last_name,
         address1: userInfo.address,
         address2: userInfo.address2,
         country: userInfo.country,
@@ -939,14 +939,14 @@ export class AuthClient {
   }
 
   private async _updateUser(userId: number, userInfo: IUserUpdatePayload, dbconn: PoolConnection) {
-    const qString = `UPDATE ${this.tableNames.userTable} SET fname=@fname, lname=@lname, 
+    const qString = `UPDATE ${this.tableNames.userTable} SET first_name=@first_name, last_name=@last_name, 
       address1=@address1, address2=@address2, country=@country, state=@state, city=@city, zip=@zip, company_name=@company_name, job_title=@job_title, 
       phone=@phone, dob=@dob WHERE user_id=@user_id`;
 
     const query = new MySqlQuery(qString, dbconn, {
       parameters: {
-        fname: userInfo.fname,
-        lname: userInfo.lname,
+        first_name: userInfo.first_name,
+        last_name: userInfo.last_name,
         address1: userInfo.address,
         address2: userInfo.address2,
         country: userInfo.country,

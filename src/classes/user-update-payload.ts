@@ -1,6 +1,6 @@
 export interface IUserUpdatePayload {
-  fname?: string;
-  lname?: string;
+  first_name?: string;
+  last_name?: string;
   address?: string;
   address2?: string;
   country?: string;
