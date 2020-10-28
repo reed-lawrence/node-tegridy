@@ -854,8 +854,8 @@ export class AuthClient {
         email_verfified: rows.results[0].email_verfified,
         first_name: rows.results[0].first_name,
         last_name: rows.results[0].last_name,
-        address: rows.results[0].address1,
-        address2: rows.results[0].address2,
+        address_1: rows.results[0].address_1,
+        address_2: rows.results[0].address_2,
         country: rows.results[0].country,
         state: rows.results[0].state,
         city: rows.results[0].city,
@@ -906,9 +906,9 @@ export class AuthClient {
 
   private async _createNewUser(userInfo: IUserInfo, dbconn: PoolConnection) {
     const qString = `INSERT INTO ${this.tableNames.userTable} (username, email, first_name, last_name, 
-      address1, address2, country, state, city, zip, company_name, job_title, 
+      address_1, address_2, country, state, city, zip, company_name, job_title, 
       date_created, phone, dob, email_verified) VALUES (@username, @email, @first_name, @last_name, 
-        @address1, @address2, @country, @state, @city, @zip, @company_name, @job_title, 
+        @address_1, @address_2, @country, @state, @city, @zip, @company_name, @job_title, 
         @date_created, @phone, @dob, @email_verified)`;
 
     const query = new MySqlQuery(qString, dbconn, {
@@ -917,8 +917,8 @@ export class AuthClient {
         email: userInfo.email,
         first_name: userInfo.first_name,
         last_name: userInfo.last_name,
-        address1: userInfo.address,
-        address2: userInfo.address2,
+        address_1: userInfo.address_1,
+        address_2: userInfo.address_2,
         country: userInfo.country,
         state: userInfo.state,
         city: userInfo.city,
@@ -940,15 +940,15 @@ export class AuthClient {
 
   private async _updateUser(userId: number, userInfo: IUserUpdatePayload, dbconn: PoolConnection) {
     const qString = `UPDATE ${this.tableNames.userTable} SET first_name=@first_name, last_name=@last_name, 
-      address1=@address1, address2=@address2, country=@country, state=@state, city=@city, zip=@zip, company_name=@company_name, job_title=@job_title, 
+      address_1=@address_1, address_2=@address_2, country=@country, state=@state, city=@city, zip=@zip, company_name=@company_name, job_title=@job_title, 
       phone=@phone, dob=@dob WHERE user_id=@user_id`;
 
     const query = new MySqlQuery(qString, dbconn, {
       parameters: {
         first_name: userInfo.first_name,
         last_name: userInfo.last_name,
-        address1: userInfo.address,
-        address2: userInfo.address2,
+        address_1: userInfo.address_1,
+        address_2: userInfo.address_2,
         country: userInfo.country,
         state: userInfo.state,
         city: userInfo.city,

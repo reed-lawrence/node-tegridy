@@ -5,8 +5,8 @@ export interface IUserInfo {
   password?: string;
   email?: string;
   email_verfified?: boolean;
-  address?: string;
-  address2?: string;
+  address_1?: string;
+  address_2?: string;
   country?: string;
   city?: string;
   state?: string;
