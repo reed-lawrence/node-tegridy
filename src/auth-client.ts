@@ -263,6 +263,8 @@ export class AuthClient {
           await this._cleanUserSessions(user.id, dbconn);
           dbconn.release();
           return { user, sessionToken: sessionToken } as ILoginResponse;
+        } else {
+          throw new Error('Session Token invalid');
         }
       }
 
@@ -321,7 +323,6 @@ export class AuthClient {
           throw new Error('No matching email found for the login attempt');
         }
       } else {
-        dbconn.release();
         throw new Error('No login request payload provided');
       }
     } catch (error) {
@@ -339,19 +340,24 @@ export class AuthClient {
   public async Logout(sessionToken: string) {
     const dbconn = await this.getConnection();
     const user = await this.ValidateSession(sessionToken, dbconn);
-    if (user) {
-      const destroyResult: boolean = await this._destroyUserSession(user.id, sessionToken, dbconn);
-      dbconn.release();
 
-      if (destroyResult) {
-        return true;
+    try {
+      if (user) {
+        const destroyResult: boolean = await this._destroyUserSession(user.id, sessionToken, dbconn);
+        dbconn.release();
+
+        if (destroyResult) {
+          return true;
+        } else {
+          throw new Error('Unable to destroy user session');
+        }
       } else {
-        throw new Error('Unable to destroy user session');
+        dbconn.release();
         return false;
       }
-    } else {
+    } catch (error) {
       dbconn.release();
-      return false;
+      throw error;
     }
   }
 
