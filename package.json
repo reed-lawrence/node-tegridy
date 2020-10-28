@@ -1,6 +1,6 @@
 {
   "name": "tegridy",
-  "version": "0.9.8",
+  "version": "0.9.9",
   "description": "Lightweight authentication library for Node.js",
   "main": "index.js",
   "scripts": {
@@ -25,7 +25,7 @@
   },
   "homepage": "https://github.com/reed-lawrence/node-tegridy#readme",
   "dependencies": {
-    "@reed-lawrence/mysql-query": "^1.0.0",
+    "@reed-lawrence/mysql-query": "^1.0.1",
     "@types/express": "^4.17.2",
     "@types/mysql": "^2.15.8",
     "express": "^4.17.1",

@@ -1,5 +1,5 @@
 import crypto from 'crypto'
-import { Pool, PoolConnection } from 'mysql';
+import { createPool, Pool, PoolConfig, PoolConnection } from 'mysql';
 import { IQueryOptions, MySqlQuery } from '@reed-lawrence/mysql-query';
 import { IUserInfo } from './classes/user-info';
 import { UserIdentity } from './classes/user-identity';
@@ -15,10 +15,21 @@ export class AuthClient {
 
   /**
    * The AuthClient class that serves as the service provider for Tegridy
-   * @param pool the MySql Connection Pool to utilize
+   * @param dbconfig the MySql Connection Pool options
    * @param options (Optional) Specify parameters 
    */
-  constructor(private pool: Pool, options?: IAuthClientOptions) {
+  constructor(dbconfig: PoolConfig, options?: IAuthClientOptions) {
+    dbconfig.queryFormat = (query: string, values: any) => {
+      if (!values) return query;
+      return query.replace(/[@](\w+)/g, (txt, key) => {
+        if (values.hasOwnProperty(key)) {
+          return escape(values[key]);
+        }
+        return txt;
+      });
+    };
+
+    this.pool = createPool(dbconfig)
     if (options) {
       if (options.concurrent_sessions) { this.concurrent_sessions = options.concurrent_sessions; }
       if (options.hash_iterations) { this.hash_iterations = options.hash_iterations; }
@@ -38,6 +49,8 @@ export class AuthClient {
     userTable: 'auth_users',
   }
 
+  public pool: Pool;
+
   /**
    * Number of times a password will be hashed via pbkdf2 cyrptography
    * (Default: 100)
@@ -52,16 +65,6 @@ export class AuthClient {
   private readonly concurrent_sessions: number | undefined;
 
   private readonly unique_fields: (keyof IUserInfo)[] = ['email'];
-
-  private queryFormat = (query: string, values: any) => {
-    if (!values) return query;
-    return query.replace(/[@](\w+)/g, (txt, key) => {
-      if (values.hasOwnProperty(key)) {
-        return escape(values[key]);
-      }
-      return txt;
-    });
-  };
 
   public readonly email_regex = /^(([^<>()\[\]\\.,;:\s@"]+(\.[^<>()\[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/;
 
@@ -100,8 +103,7 @@ export class AuthClient {
         const query = new MySqlQuery(qString, dbconn, {
           parameters: {
             session_token: requestTokenFromHeaders
-          },
-          queryFormat: this.queryFormat
+          }
         });
         await query.executeNonQuery();
       }
@@ -114,8 +116,7 @@ export class AuthClient {
         parameters: {
           session_token: token,
           date_created: new Date()
-        },
-        queryFormat: this.queryFormat
+        }
       });
       const result = await query.executeNonQuery();
 
@@ -144,8 +145,7 @@ export class AuthClient {
       const query = new MySqlQuery(qString, dbconn, {
         parameters: {
           session_token: requestToken
-        },
-        queryFormat: this.queryFormat
+        }
       });
 
       const count: number = await query.executeScalar();
@@ -186,8 +186,7 @@ export class AuthClient {
       let query = new MySqlQuery(qString, dbconn, {
         parameters: {
           selector: selector
-        },
-        queryFormat: this.queryFormat
+        }
       });
 
       const rowId: number = parseInt(await query.executeScalar(), 10);
@@ -200,8 +199,7 @@ export class AuthClient {
       query = new MySqlQuery(qString, dbconn, {
         parameters: {
           id: rowId
-        },
-        queryFormat: this.queryFormat
+        }
       });
 
       const qResult = await query.executeQuery();
@@ -294,8 +292,7 @@ export class AuthClient {
             parameters: {
               password: passHash,
               user_id: user.id,
-            },
-            queryFormat: this.queryFormat
+            }
           });
 
           const userCount: number = await query.executeScalar();
@@ -707,8 +704,7 @@ export class AuthClient {
         user_id: userId,
         validator: validator,
         selector: selector
-      },
-      queryFormat: this.queryFormat
+      }
     });
 
     const deleteResult = await query.executeNonQuery();
@@ -720,8 +716,7 @@ export class AuthClient {
         user_id: userId,
         validator: validator,
         selector: selector
-      },
-      queryFormat: this.queryFormat
+      }
     });
 
     const numrows: number = parseInt(await query.executeScalar(), 10);
@@ -738,8 +733,7 @@ export class AuthClient {
       let query = new MySqlQuery(qString, dbconn, {
         parameters: {
           user_id: userId
-        },
-        queryFormat: this.queryFormat
+        }
       });
       const count: number = parseInt(await query.executeScalar(), 10);
       if (count > this.concurrent_sessions) {
@@ -756,8 +750,7 @@ export class AuthClient {
           query = new MySqlQuery(qString, dbconn, {
             parameters: {
               id: token.id
-            },
-            queryFormat: this.queryFormat
+            }
           });
 
           await query.executeNonQuery();
@@ -774,8 +767,7 @@ export class AuthClient {
     const query = new MySqlQuery(qString, dbconn, {
       parameters: {
         user_id: userId
-      },
-      queryFormat: this.queryFormat
+      }
     });
 
     const rows = await query.executeQuery();
@@ -801,8 +793,7 @@ export class AuthClient {
         selector: selector,
         validator: validator,
         date_created: new Date()
-      },
-      queryFormat: this.queryFormat
+      }
     });
 
     const saveResult = await query.executeNonQuery();
@@ -829,8 +820,7 @@ export class AuthClient {
         validator: validator,
         date_created: new Date(),
         user_id: userId
-      },
-      queryFormat: this.queryFormat
+      }
     });
 
     const result = await query.executeNonQuery();
@@ -851,8 +841,7 @@ export class AuthClient {
     const query = new MySqlQuery(qString, dbconn, {
       parameters: {
         id: userId
-      },
-      queryFormat: this.queryFormat
+      }
     });
 
     const rows = await query.executeQuery();
@@ -885,7 +874,7 @@ export class AuthClient {
   private async _getUser(userId: number, dbconn: PoolConnection): Promise<UserIdentity>
   private async _getUser(arg: number | string, dbconn: PoolConnection) {
     let qString = '';
-    const qOptions: IQueryOptions = { queryFormat: this.queryFormat, parameters: {} };
+    const qOptions: Partial<IQueryOptions> = {};
 
     if (typeof arg === 'number') {
       qString = `SELECT id, email, username, fname, lname FROM ${this.tableNames.userTable} WHERE id=@id`;
@@ -938,8 +927,7 @@ export class AuthClient {
         phone: userInfo.phone,
         dob: userInfo.dob,
         email_verified: 0
-      },
-      queryFormat: this.queryFormat
+      }
     });
 
     const qResult = await query.executeNonQuery();
@@ -968,8 +956,7 @@ export class AuthClient {
         phone: userInfo.phone,
         dob: userInfo.dob,
         user_id: userId
-      },
-      queryFormat: this.queryFormat
+      }
     });
 
     const qResult = await query.executeNonQuery();
@@ -982,8 +969,7 @@ export class AuthClient {
     const query = new MySqlQuery(qString, dbconn, {
       parameters: {
         username
-      },
-      queryFormat: this.queryFormat
+      }
     });
     const results = await query.executeScalar<number>();
     return results === 0;
@@ -995,8 +981,7 @@ export class AuthClient {
       parameters: {
         username,
         user_id: userId
-      },
-      queryFormat: this.queryFormat
+      }
     });
 
     const qResult = await query.executeNonQuery();
@@ -1016,8 +1001,7 @@ export class AuthClient {
       parameters: {
         email: payload.email,
         reset_key: payload.secret
-      },
-      queryFormat: this.queryFormat
+      }
     });
 
     const count = parseInt(await query.executeScalar(), 10);
@@ -1033,8 +1017,7 @@ export class AuthClient {
         query = new MySqlQuery(qString, dbconn, {
           parameters: {
             user_id: user.id
-          },
-          queryFormat: this.queryFormat
+          }
         });
 
         const passDelResult = await query.executeNonQuery();
@@ -1047,8 +1030,7 @@ export class AuthClient {
         query = new MySqlQuery(qString, dbconn, {
           parameters: {
             user_id: user.id
-          },
-          queryFormat: this.queryFormat
+          }
         });
 
         const hashDelResult = await query.executeNonQuery();
@@ -1065,8 +1047,7 @@ export class AuthClient {
           query = new MySqlQuery(qString, dbconn, {
             parameters: {
               email: payload.email
-            },
-            queryFormat: this.queryFormat
+            }
           });
 
           const resetDelResult = await query.executeNonQuery();
@@ -1101,8 +1082,7 @@ export class AuthClient {
         email: email,
         reset_key: key,
         date_created: new Date()
-      },
-      queryFormat: this.queryFormat
+      }
     });
 
     const result = await query.executeNonQuery();
@@ -1118,8 +1098,7 @@ export class AuthClient {
     const query = new MySqlQuery(qString, dbconn, {
       parameters: {
         user_id: userId
-      },
-      queryFormat: this.queryFormat
+      }
     });
 
     const saltString: string = await query.executeScalar();
@@ -1133,8 +1112,7 @@ export class AuthClient {
       parameters: {
         user_id: user.id,
         hash_salt: salt
-      },
-      queryFormat: this.queryFormat
+      }
     });
 
     const results = await query.executeNonQuery();
@@ -1151,8 +1129,7 @@ export class AuthClient {
       parameters: {
         user_id: userId,
         password: passwordHash
-      },
-      queryFormat: this.queryFormat
+      }
     });
 
     const result = await query.executeNonQuery();
@@ -1167,8 +1144,7 @@ export class AuthClient {
   private async _isUniqueEmail(email: string, dbconn: PoolConnection) {
     const qString = `SELECT COUNT(id) AS user_count FROM ${this.tableNames.userTable} WHERE email=@email`;
     const query = new MySqlQuery(qString, dbconn, {
-      parameters: { email },
-      queryFormat: this.queryFormat
+      parameters: { email }
     });
     const results = await query.executeScalar<number>();
     return results === 0;
@@ -1180,8 +1156,7 @@ export class AuthClient {
       parameters: {
         email,
         user_id: userId
-      },
-      queryFormat: this.queryFormat
+      }
     });
 
     const qResult = await query.executeNonQuery();
@@ -1197,8 +1172,7 @@ export class AuthClient {
       parameters: {
         email,
         user_id: userId
-      },
-      queryFormat: this.queryFormat
+      }
     });
 
     await query.executeNonQuery();
@@ -1213,8 +1187,7 @@ export class AuthClient {
         user_id: userId,
         secret,
         date_created: new Date()
-      },
-      queryFormat: this.queryFormat
+      }
     });
 
     const result = await query.executeNonQuery();
@@ -1233,8 +1206,7 @@ export class AuthClient {
         email,
         secret,
         user_id: userId
-      },
-      queryFormat: this.queryFormat
+      }
     });
 
     const count = await query.executeScalar<number>();
@@ -1247,8 +1219,7 @@ export class AuthClient {
     query = new MySqlQuery(qString, dbconn, {
       parameters: {
         user_id: userId
-      },
-      queryFormat: this.queryFormat
+      }
     });
 
     let result = await query.executeNonQuery();
@@ -1261,8 +1232,7 @@ export class AuthClient {
     query = new MySqlQuery(qString, dbconn, {
       parameters: {
         user_id: userId
-      },
-      queryFormat: this.queryFormat
+      }
     });
 
     await query.executeNonQuery();
