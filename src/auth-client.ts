@@ -1096,7 +1096,7 @@ export class AuthClient {
   }
 
   private async _getStoredSaltHash(userId: number, dbconn: PoolConnection) {
-    const qString = `SELECT hash_salt from ${this.tableNames.hashSaltStore} WHERE user_id=@user_id`;
+    const qString = `SELECT salt from ${this.tableNames.hashSaltStore} WHERE user_id=@user_id`;
     const query = new MySqlQuery(qString, dbconn, {
       parameters: {
         user_id: userId
@@ -1109,11 +1109,11 @@ export class AuthClient {
 
   private async _createUserSaltKey(user: UserIdentity, dbconn: PoolConnection) {
     const salt: string = await generateSalt();
-    const qString = `INSERT INTO ${this.tableNames.hashSaltStore} (user_id, hash_salt) VALUES (@user_id, @hash_salt)`;
+    const qString = `INSERT INTO ${this.tableNames.hashSaltStore} (user_id, sa;t) VALUES (@user_id, @salt)`;
     const query = new MySqlQuery(qString, dbconn, {
       parameters: {
         user_id: user.id,
-        hash_salt: salt
+        salt
       }
     });
 
