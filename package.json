@@ -1,11 +1,11 @@
 {
   "name": "tegridy",
-  "version": "0.9.9",
+  "version": "0.9.10",
   "description": "Lightweight authentication library for Node.js",
   "main": "index.js",
   "scripts": {
     "test": "npm run build && mocha ./dist/test/test.js",
-    "start": "npm run build && node ./dist/testing/main.js",
+    "start": "npm run build && node ./dist/test/main.js",
     "build": "node scripts/clean-dist.js && tsc",
     "build:prod": "npm run build && node scripts/pre-publish.js",
     "publish:release": "npm run build:prod && cd ./dist && npm publish --access public"

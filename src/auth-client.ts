@@ -1,14 +1,16 @@
-import crypto from 'crypto'
-import { createPool, Pool, PoolConfig, PoolConnection } from 'mysql';
-import { IQueryOptions, MySqlQuery } from '@reed-lawrence/mysql-query';
-import { IUserInfo } from './classes/user-info';
-import { UserIdentity } from './classes/user-identity';
-import { ILoginRequest } from './classes/login-request';
-import { generatePasswordHash, generateRequestToken, generateSalt, generateSessionToken, randomChars } from './auth-crypto';
-import { IdentityToken } from './classes/identity-token';
-import { ILoginResponse } from './classes/login-response';
+import { createPool, escape, Pool, PoolConfig, PoolConnection } from 'mysql';
+
+import {
+  generatePasswordHash, generateRequestToken, generateSalt, generateSessionToken, randomChars
+} from './auth-crypto';
 import { IAuthClientOptions } from './classes/auth-client-options';
+import { IdentityToken } from './classes/identity-token';
+import { ILoginRequest } from './classes/login-request';
+import { ILoginResponse } from './classes/login-response';
+import { IQueryOptions, MySqlQuery } from '@reed-lawrence/mysql-query';
 import { IPasswordResetPayload } from './classes/password-reset-payload';
+import { UserIdentity } from './classes/user-identity';
+import { IUserInfo } from './classes/user-info';
 import { IUserUpdatePayload } from './classes/user-update-payload';
 
 export class AuthClient {
@@ -98,7 +100,7 @@ export class AuthClient {
     try {
 
       if (requestTokenFromHeaders) {
-        const qString = `DELETE FROM ${this.tableNames.forgeryTokenStore} WHERE session_token=@session_token`;
+        const qString = `DELETE FROM ${this.tableNames.forgeryTokenStore} WHERE session_token = @session_token`;
 
         const query = new MySqlQuery(qString, dbconn, {
           parameters: {
@@ -110,7 +112,7 @@ export class AuthClient {
 
       const token = await generateRequestToken();
 
-      const qString = `INSERT INTO ${this.tableNames.forgeryTokenStore} (session_token, date_created) VALUES (@session_token, @date_created)`;
+      const qString = `INSERT INTO ${this.tableNames.forgeryTokenStore} (session_token, date_created) VALUES ( @session_token , @date_created)`;
 
       const query = new MySqlQuery(qString, dbconn, {
         parameters: {

@@ -2,7 +2,8 @@ import { createPool } from "mysql";
 import { AuthClient } from "../src/auth-client";
 
 const client = new AuthClient({
-  database: 'auth_server',
+  database: 'myApp',
+  host: 'localhost',
   user: 'root',
   port: 3306,
   password: '2v&kJe^jf%!&jG>WiwieFReVLEeydmqGWV.o)mvp83W7,mz]rrv!rq3!C7hL6o+h',
