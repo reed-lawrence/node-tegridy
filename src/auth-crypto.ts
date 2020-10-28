@@ -23,18 +23,23 @@ export async function randomBytes(length: number) {
 
 export async function randomChars(length: number) {
   const buffer = await randomBytes(length);
-  return buffer.toString('base64').replace(/[\/]/g, '_').replace(/[+]/g, '-');
+  return buffer.toString('base64').replace(/[\/]/g, '_').replace(/[+]/g, '-').substr(0, length);
 }
 
 export async function generateSalt(): Promise<string> {
-  return await randomChars(24);
+  return await randomChars(32);
 }
 
 export async function generateSessionToken(): Promise<{ selector: string; token: string }> {
-  const tokenLength = 372;
-  const selectorLength = 12;
+  const tokenLength = 496;
+  const selectorLength = 16;
 
   const tokenStr = await randomChars(tokenLength);
   const selectorStr = await randomChars(selectorLength);
   return { selector: selectorStr, token: tokenStr };
+}
+
+export async function generateRequestToken(): Promise<string> {
+  const tokenLength = 264;
+  return await randomChars(264);
 }

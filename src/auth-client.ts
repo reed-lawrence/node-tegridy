@@ -4,7 +4,7 @@ import { IQueryOptions, MySqlQuery } from '@reed-lawrence/mysql-query';
 import { IUserInfo } from './classes/user-info';
 import { UserIdentity } from './classes/user-identity';
 import { ILoginRequest } from './classes/login-request';
-import { generatePasswordHash, generateSalt, generateSessionToken, randomChars } from './auth-crypto';
+import { generatePasswordHash, generateRequestToken, generateSalt, generateSessionToken, randomChars } from './auth-crypto';
 import { IdentityToken } from './classes/identity-token';
 import { ILoginResponse } from './classes/login-response';
 import { IAuthClientOptions } from './classes/auth-client-options';
@@ -106,7 +106,7 @@ export class AuthClient {
         await query.executeNonQuery();
       }
 
-      const token = await randomChars(196);
+      const token = await generateRequestToken();
 
       const qString = `INSERT INTO ${this.tableNames.forgeryTokenStore} (session_token, date_created) VALUES (@session_token, @date_created)`;
 

@@ -1,7 +1,7 @@
 import { describe } from 'mocha';
 import assert from 'assert';
 import { AuthClient } from '../src/auth-client';
-import { generatePasswordHash, generateSalt, generateSessionToken } from '../src/auth-crypto';
+import { generatePasswordHash, generateRequestToken, generateSalt, generateSessionToken, randomChars } from '../src/auth-crypto';
 
 describe('Crypto', () => {
 
@@ -14,9 +14,30 @@ describe('Crypto', () => {
 
       const actual: number[] = [];
       buffer.forEach(byte => actual.push(byte));
-      assert.equal(expected.length, actual.length, 'Buffer lengths are not equal');
+      assert.strictEqual(expected.length, actual.length, 'Buffer lengths are not equal');
       for (let i = 0; i < expected.length; i++) {
-        assert.equal(expected[i], actual[i], `value at ${i} are not equal`);
+        assert.strictEqual(expected[i], actual[i], `value at ${i} are not equal`);
+      }
+    });
+  });
+
+  describe('String Generation', () => {
+    it('Random string lengths should be as input', async () => {
+      // Arrange
+      const expectedLength = 64;
+
+      // Act
+      const randomString = await randomChars(expectedLength);
+
+      // Assert
+      assert.strictEqual(randomString.length, expectedLength);
+    });
+
+    it('Random strings should not contain / or +', async () => {
+      for (let i = 0; i < 1000; i++) {
+        const str = await randomChars(100);
+        assert.strictEqual(str.indexOf('/'), -1, 'Selector contains /');
+        assert.strictEqual(str.indexOf('/'), -1, 'Token contains /');
       }
     });
   });
@@ -33,23 +54,41 @@ describe('Crypto', () => {
       const actualHash = await generatePasswordHash(password, saltStr, 25000);
 
       // Assert
-      assert.equal(actualHash, expectedHash, 'Password hashes are not equal');
-      assert.equal(actualHash.length, expectedLength, 'Password hash length is not as expected');
+      assert.strictEqual(actualHash, expectedHash, 'Password hashes are not equal');
+      assert.strictEqual(actualHash.length, expectedLength, 'Password hash length is not as expected');
 
     });
 
     it('Generated salt should be 32 characters long', async () => {
-      assert.equal((await generateSalt()).length, 32);
+      assert.strictEqual((await generateSalt()).length, 32);
     });
 
-    it('Session and selector tokens should not contain / or +', async () => {
+    it('Generated reqest token should be 264 characters long', async () => {
+      assert.strictEqual((await generateRequestToken()).length, 264);
+    });
+
+    it('Generated session token should be 512 characters long', async () => {
+      const session = await generateSessionToken();
+      assert.strictEqual(session.selector.length + session.token.length, 512);
+    });
+
+    it('Session Token should not contain + or /', async () => {
       // Perform multiple times for better coverage
       for (let i = 0; i < 1000; i++) {
         const payload = await generateSessionToken();
-        assert.equal(payload.selector.indexOf('/'), -1, 'Selector contains /');
-        assert.equal(payload.token.indexOf('/'), -1, 'Token contains /');
-        assert.equal(payload.selector.indexOf('+'), -1, 'Selector contains +');
-        assert.equal(payload.token.indexOf('+'), -1, 'Token contains +');
+        assert.strictEqual(payload.selector.indexOf('/'), -1, 'Selector contains /');
+        assert.strictEqual(payload.token.indexOf('/'), -1, 'Token contains /');
+        assert.strictEqual(payload.selector.indexOf('+'), -1, 'Selector contains +');
+        assert.strictEqual(payload.token.indexOf('+'), -1, 'Token contains +');
+      }
+    });
+
+    it('Request Token should not contain + or /', async () => {
+      // Perform multiple times for better coverage
+      for (let i = 0; i < 1000; i++) {
+        const str = await generateRequestToken();
+        assert.strictEqual(str.indexOf('/'), -1, 'Selector contains /');
+        assert.strictEqual(str.indexOf('/'), -1, 'Token contains /');
       }
     });
 
