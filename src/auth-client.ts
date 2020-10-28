@@ -247,7 +247,7 @@ export class AuthClient {
    * @param loginRequest The login request to be attempted
    * @returns The identity of the user and session token or undefined if invalid login
    */
-  public async Login(sessionToken?: string, loginRequest?: Partial<ILoginRequest>): Promise<ILoginResponse | undefined> {
+  public async Login(sessionToken?: string, loginRequest?: Partial<ILoginRequest>) {
     const dbconn = await this.getConnection();
 
     try {
@@ -262,7 +262,7 @@ export class AuthClient {
           await this._updateUserSession(user.id, sessionToken, dbconn);
           await this._cleanUserSessions(user.id, dbconn);
           dbconn.release();
-          return { user, sessionToken: sessionToken };
+          return { user, sessionToken: sessionToken } as ILoginResponse;
         }
       }
 
@@ -306,25 +306,19 @@ export class AuthClient {
             const sessionResult = await this._createUserSession(user.id, sessionPayload.selector, sessionPayload.token, dbconn);
 
             if (!sessionResult) {
-              console.error('Unable to create a new sessionToken for the user');
-              dbconn.release();
-              return;
+              throw new Error('Unable to create a new sessionToken for the user');
             }
 
             await this._cleanUserSessions(user.id, dbconn);
             dbconn.release();
 
-            return { user, sessionToken: sessionPayload.token + sessionPayload.selector };
+            return { user, sessionToken: sessionPayload.token + sessionPayload.selector } as ILoginResponse;
 
           } else {
-            console.error('No matching password hash found for the login attempt');
-            dbconn.release();
-            return;
+            throw new Error('No matching password hash found for the login attempt');
           }
         } else {
-          console.error('No matching email found for the login attempt');
-          dbconn.release();
-          return;
+          throw new Error('No matching email found for the login attempt');
         }
       } else {
         dbconn.release();
@@ -352,7 +346,7 @@ export class AuthClient {
       if (destroyResult) {
         return true;
       } else {
-        console.error('Unable to destroy user session');
+        throw new Error('Unable to destroy user session');
         return false;
       }
     } else {
@@ -829,7 +823,7 @@ export class AuthClient {
     if (result.affectedRows === 1) {
       return true;
     } else {
-      console.error('Unable to update session date_created');
+      throw new Error('Unable to update session date_created');
       return false;
     }
   }
@@ -1024,7 +1018,7 @@ export class AuthClient {
 
         const passDelResult = await query.executeNonQuery();
         if (!passDelResult.affectedRows) {
-          console.error('Unable to delete password corresponding to the user specified');
+          throw new Error('Unable to delete password corresponding to the user specified');
           return false;
         }
 
@@ -1037,7 +1031,7 @@ export class AuthClient {
 
         const hashDelResult = await query.executeNonQuery();
         if (!hashDelResult.affectedRows) {
-          console.error('Unable to delete the hash salt corresponding to the user specified');
+          throw new Error('Unable to delete the hash salt corresponding to the user specified');
           return false;
         }
 
@@ -1055,23 +1049,23 @@ export class AuthClient {
           const resetDelResult = await query.executeNonQuery();
 
           if (!resetDelResult.affectedRows) {
-            console.error('Unable to delete existing password reset keys');
+            throw new Error('Unable to delete existing password reset keys');
           }
 
           return true;
 
         } else {
-          console.error('Unable to save user password');
+          throw new Error('Unable to save user password');
           return false;
         }
 
 
       } else {
-        console.error('No matching user found corresponding to email');
+        throw new Error('No matching user found corresponding to email');
         return false;
       }
     } else {
-      console.error('No matching reset keys found');
+      throw new Error('No matching reset keys found');
       return false;
     }
   }
