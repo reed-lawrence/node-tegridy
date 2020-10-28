@@ -1109,7 +1109,7 @@ export class AuthClient {
 
   private async _createUserSaltKey(user: UserIdentity, dbconn: PoolConnection) {
     const salt: string = await generateSalt();
-    const qString = `INSERT INTO ${this.tableNames.hashSaltStore} (user_id, sa;t) VALUES (@user_id, @salt)`;
+    const qString = `INSERT INTO ${this.tableNames.hashSaltStore} (user_id, salt) VALUES (@user_id, @salt)`;
     const query = new MySqlQuery(qString, dbconn, {
       parameters: {
         user_id: user.id,
