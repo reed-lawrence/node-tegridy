@@ -168,65 +168,12 @@ export class AuthClient {
    * @param sessionToken the session token to validate
    * @param dbconn (optional) MySQL connection to utilize. If none is supplied, one will be created.
    */
-  public async ValidateSession(sessionToken: string, dbconn?: PoolConnection) {
-    if (!dbconn) {
-      dbconn = await this.getConnection();
-    }
+  public async ValidateSession(sessionToken: string) {
+    const dbconn = await this.getConnection();
 
     try {
 
-      if (sessionToken.length !== 512) {
-        throw new Error('Session token invalid: Code 1');
-      }
-
-      const splitIndex = 496;
-      const validator: string = sessionToken.substr(0, splitIndex);
-      const selector: string = sessionToken.substr(splitIndex);
-
-      // Get the row id from the selector
-      let qString = `SELECT id from ${this.tableNames.sessionTokenStore} WHERE selector=@selector`;
-      let query = new MySqlQuery(qString, dbconn, {
-        parameters: {
-          selector: selector
-        }
-      });
-
-      const rowId: number = parseInt(await query.executeScalar(), 10);
-      if (!rowId) {
-        dbconn.release();
-        throw new Error('Cannot find a matching row corresponding to the given token selector');
-      }
-
-      qString = `SELECT * FROM ${this.tableNames.sessionTokenStore} WHERE id=@id`;
-      query = new MySqlQuery(qString, dbconn, {
-        parameters: {
-          id: rowId
-        }
-      });
-
-      const qResult = await query.executeQuery();
-      if (!qResult.results[0]) {
-        dbconn.release();
-        throw new Error('No rows returned corresponding to the Id returned from the given token selector');
-      }
-      const storedToken = new IdentityToken({
-        date_created: qResult.results[0].date_created,
-        id: qResult.results[0].id,
-        selector: qResult.results[0].selector,
-        user_id: qResult.results[0].user_id,
-        validator: qResult.results[0].validator
-      });
-
-      let userId = 0;
-      if (storedToken.validator === validator) {
-        userId = storedToken.user_id;
-      } else {
-        dbconn.release();
-        throw new Error('User returned does not correspond to stored token user');
-      }
-
-      const user = await this._getUser(userId, dbconn);
-      return user;
+      return await this._validateUserSession(sessionToken, dbconn);
 
     } catch (error) {
 
@@ -257,7 +204,7 @@ export class AuthClient {
        *    - If session token is valid, update the token date and return the user
        */
       if (sessionToken) {
-        const user = await this.ValidateSession(sessionToken, dbconn);
+        const user = await this._validateUserSession(sessionToken, dbconn);
         if (user) {
           await this._updateUserSession(user.id, sessionToken, dbconn);
           await this._cleanUserSessions(user.id, dbconn);
@@ -339,9 +286,11 @@ export class AuthClient {
    */
   public async Logout(sessionToken: string) {
     const dbconn = await this.getConnection();
-    const user = await this.ValidateSession(sessionToken, dbconn);
 
     try {
+
+      const user = await this._validateUserSession(sessionToken, dbconn);
+
       if (user) {
         const destroyResult: boolean = await this._destroyUserSession(user.id, sessionToken, dbconn);
         dbconn.release();
@@ -694,6 +643,60 @@ export class AuthClient {
   /// PRIVATE METHODS
 
   // #region TOKEN/SESSION MANAGEMENT
+
+  private async _validateUserSession(sessionToken: string, dbconn: PoolConnection) {
+
+    if (sessionToken.length !== 512) {
+      throw new Error('Session token invalid: Code 1');
+    }
+
+    const splitIndex = 496;
+    const validator: string = sessionToken.substr(0, splitIndex);
+    const selector: string = sessionToken.substr(splitIndex);
+
+    // Get the row id from the selector
+    let qString = `SELECT id from ${this.tableNames.sessionTokenStore} WHERE selector=@selector`;
+    let query = new MySqlQuery(qString, dbconn, {
+      parameters: {
+        selector: selector
+      }
+    });
+
+    const rowId: number = parseInt(await query.executeScalar(), 10);
+    if (!rowId) {
+      throw new Error('Cannot find a matching row corresponding to the given token selector');
+    }
+
+    qString = `SELECT * FROM ${this.tableNames.sessionTokenStore} WHERE id=@id`;
+    query = new MySqlQuery(qString, dbconn, {
+      parameters: {
+        id: rowId
+      }
+    });
+
+    const qResult = await query.executeQuery();
+    if (!qResult.results[0]) {
+      throw new Error('No rows returned corresponding to the Id returned from the given token selector');
+    }
+    const storedToken = new IdentityToken({
+      date_created: qResult.results[0].date_created,
+      id: qResult.results[0].id,
+      selector: qResult.results[0].selector,
+      user_id: qResult.results[0].user_id,
+      validator: qResult.results[0].validator
+    });
+
+    let userId = 0;
+    if (storedToken.validator === validator) {
+      userId = storedToken.user_id;
+    } else {
+      throw new Error('User returned does not correspond to stored token user');
+    }
+
+    const user = await this._getUser(userId, dbconn);
+    return user;
+
+  }
 
   private async _destroyUserSession(userId: number, sessionToken: string, dbconn: PoolConnection) {
     const splitIndex = 496;
