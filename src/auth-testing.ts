@@ -37,27 +37,20 @@ export class AuthTesting {
 
   public async ResetAuthTables() {
     const dbconn = await this.getConnection();
-    let qString = '';
 
     for (const key in this.tables) {
-      // @ts-ignore
-      qString += `DELETE FROM ${this.tables[key]};`;
+      //@ts-ignore
+      const qString = `DELETE FROM ${this.tables[key]};`;
+      const query = new MySqlQuery(qString, dbconn);
+      try {
+        await query.executeNonQuery();
+      } catch (error) {
+        dbconn.release();
+        throw error;
+      }
     }
 
-    const query = new MySqlQuery(qString, dbconn);
-
-    try {
-
-      await query.executeNonQuery();
-      dbconn.release();
-
-    } catch (error) {
-
-      dbconn.release();
-      throw error;
-
-    }
-
+    dbconn.release();
     return;
   }
 

@@ -1,7 +1,8 @@
-import { describe } from 'mocha';
+import { before, describe } from 'mocha';
 import assert from 'assert';
 import { AuthClient } from '../src/auth-client';
 import { generatePasswordHash, generateRequestToken, generateSalt, generateSessionToken, randomChars } from '../src/auth-crypto';
+import { AuthTesting } from '../src/auth-testing';
 
 describe('Crypto', () => {
 
@@ -159,6 +160,32 @@ describe('Crypto', () => {
       // Act
       const actualHash = await generatePasswordHash(password, saltStr, iterations);
     });
+
+  });
+
+});
+
+describe('AuthTesting', () => {
+
+  let platform: AuthTesting;
+
+  before(() => {
+    platform = new AuthTesting({
+      host: 'localhost',
+      user: 'root',
+      password: '2v&kJe^jf%!&jG>WiwieFReVLEeydmqGWV.o)mvp83W7,mz]rrv!rq3!C7hL6o+h',
+      port: 3306,
+      database: 'myApp'
+    });
+  });
+
+  after(() => {
+    platform.dispose();
+  });
+
+  it('Should delete all tables', async () => {
+
+    await platform.ResetAuthTables();
 
   });
 
