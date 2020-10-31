@@ -1,5 +1,7 @@
 import { createPool, escape, Pool, PoolConfig, PoolConnection } from 'mysql';
 
+import { IQueryOptions, MySqlQuery } from '@reed-lawrence/mysql-query';
+
 import {
   generatePasswordHash, generateRequestToken, generateSalt, generateSessionToken, randomChars
 } from './auth-crypto';
@@ -7,11 +9,11 @@ import { IAuthClientOptions } from './classes/auth-client-options';
 import { IdentityToken } from './classes/identity-token';
 import { ILoginRequest } from './classes/login-request';
 import { ILoginResponse } from './classes/login-response';
-import { IQueryOptions, MySqlQuery } from '@reed-lawrence/mysql-query';
 import { IPasswordResetPayload } from './classes/password-reset-payload';
 import { UserIdentity } from './classes/user-identity';
 import { IUserInfo } from './classes/user-info';
 import { IUserUpdatePayload } from './classes/user-update-payload';
+import { AuthTableNames } from './constants/table-names';
 
 export class AuthClient {
 
@@ -39,17 +41,7 @@ export class AuthClient {
     }
   }
 
-  public readonly tableNames = {
-    emailVerifications: 'auth_email_verifications',
-    forgeryTokenStore: 'auth_forgery_tokens',
-    hashSaltStore: 'auth_hash_salts',
-    passResetKeyStore: 'auth_password_reset_requests',
-    passwordStore: 'auth_passwords',
-    roles: 'auth_roles',
-    sessionTokenStore: 'auth_session_tokens',
-    userRoleStore: 'auth_user_roles',
-    userTable: 'auth_users',
-  }
+  public readonly tableNames = AuthTableNames;
 
   public pool: Pool;
 
@@ -236,7 +228,6 @@ export class AuthClient {
         if (user && user.id) {
           const salt: string = await this._getStoredSaltHash(user.id, dbconn);
           const passHash: string = await generatePasswordHash(loginRequest.password, salt, this.hash_iterations);
-          console.log(passHash);
 
           const qString = `SELECT COUNT(user_id) FROM ${this.tableNames.passwordStore} WHERE password=@password AND user_id=@user_id`;
           const query = new MySqlQuery(qString, dbconn, {
@@ -1126,8 +1117,8 @@ export class AuthClient {
 
   private async _storeUserPassword(userId: number, password: string, salt: string, dbconn: PoolConnection) {
     const passwordHash: string = await generatePasswordHash(password, salt, this.hash_iterations);
-    console.log('Password Length:', passwordHash.length);
-    console.log('Salt Length:', salt.length);
+    // console.log('Password Length:', passwordHash.length);
+    // console.log('Salt Length:', salt.length);
 
     const qString = `INSERT INTO ${this.tableNames.passwordStore} (user_id, password) VALUES (@user_id, @password)`;
     const query = new MySqlQuery(qString, dbconn, {
