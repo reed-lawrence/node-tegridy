@@ -935,7 +935,7 @@ export class AuthClient {
   private async _updateUser(userId: number, userInfo: IUserUpdatePayload, dbconn: PoolConnection) {
     const qString = `UPDATE ${this.tableNames.userTable} SET first_name=@first_name, last_name=@last_name, 
       address_1=@address_1, address_2=@address_2, country=@country, state=@state, city=@city, zip=@zip, company_name=@company_name, job_title=@job_title, 
-      phone=@phone, dob=@dob WHERE user_id=@user_id`;
+      phone=@phone, dob=@dob WHERE id=@id`;
 
     const query = new MySqlQuery(qString, dbconn, {
       parameters: {
@@ -951,7 +951,7 @@ export class AuthClient {
         job_title: userInfo.job_title,
         phone: userInfo.phone,
         dob: userInfo.dob,
-        user_id: userId
+        id: userId
       }
     });
 
@@ -972,11 +972,11 @@ export class AuthClient {
   }
 
   private async _updateUsername(userId: number, username: string, dbconn: PoolConnection) {
-    const qString = `UPDATE ${this.tableNames.userTable} SET username=@username WHERE user_id=@user_id`;
+    const qString = `UPDATE ${this.tableNames.userTable} SET username=@username WHERE id=@id`;
     const query = new MySqlQuery(qString, dbconn, {
       parameters: {
         username,
-        user_id: userId
+        id: userId
       }
     });
 
@@ -1147,11 +1147,11 @@ export class AuthClient {
   }
 
   private async _updateEmail(userId: number, email: string, dbconn: PoolConnection) {
-    const qString = `UPDATE ${this.tableNames.userTable} SET email=@email WHERE user_id=@user_id`;
+    const qString = `UPDATE ${this.tableNames.userTable} SET email=@email WHERE id=@id`;
     const query = new MySqlQuery(qString, dbconn, {
       parameters: {
         email,
-        user_id: userId
+        id: userId
       }
     });
 
@@ -1211,10 +1211,10 @@ export class AuthClient {
       throw new Error('No matching email verification keys found');
     }
 
-    qString = `UPDATE ${this.tableNames.userTable} email_verified=1 WHERE user_id=@userId`;
+    qString = `UPDATE ${this.tableNames.userTable} email_verified=1 WHERE id=@id`;
     query = new MySqlQuery(qString, dbconn, {
       parameters: {
-        user_id: userId
+        id: userId
       }
     });
 
