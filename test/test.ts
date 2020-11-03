@@ -1,5 +1,5 @@
 import { before, describe } from 'mocha';
-import assert from 'assert';
+import { assert } from 'chai';
 import { AuthClient } from '../src/auth-client';
 import { generatePasswordHash, generateRequestToken, generateSalt, generateSessionToken, randomChars } from '../src/auth-crypto';
 import { AuthTesting } from '../src/auth-testing';
@@ -209,6 +209,11 @@ describe('AuthClient', () => {
     client = platform.client;
   });
 
+  after(() => {
+    client.pool.end();
+    platform.pool.end();
+  })
+
   beforeEach(async () => {
     await platform.ResetAuthTables();
   });
@@ -226,7 +231,7 @@ describe('AuthClient', () => {
       const createdUser = await client.Register(user);
 
       const dbUser = await client.GetAccountInfo(createdUser.id);
-
+      console.log(dbUser);
       assert.strictEqual(dbUser.first_name, user.first_name);
       assert.strictEqual(dbUser.last_name, user.last_name);
       assert.strictEqual(dbUser.address_1, user.address_1);

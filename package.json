@@ -33,7 +33,9 @@
     "promise-mysql": "^4.1.1"
   },
   "devDependencies": {
+    "@types/chai": "^4.2.14",
     "@types/mocha": "^5.2.7",
+    "chai": "^4.2.0",
     "fs-extra": "^9.0.1",
     "mocha": "^8.2.0"
   }
