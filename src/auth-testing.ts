@@ -1,10 +1,12 @@
 import { MySqlQuery } from "@reed-lawrence/mysql-query";
 import { createPool, Pool, PoolConfig, PoolConnection, escape } from "mysql";
+import { AuthClient } from "./auth-client";
+import { IAuthClientOptions } from "./classes/auth-client-options";
 import { AuthTableNames } from "./constants/table-names";
 
 export class AuthTesting {
 
-  constructor(dbconfig: PoolConfig) {
+  constructor(dbconfig: PoolConfig, options?: IAuthClientOptions) {
     dbconfig.queryFormat = (query: string, values: any) => {
       if (!values) return query;
       return query.replace(/[@](\w+)/g, (txt, key) => {
@@ -15,10 +17,12 @@ export class AuthTesting {
       });
     };
 
-    this.pool = createPool(dbconfig)
+    this.pool = createPool(dbconfig);
+    this.client = new AuthClient(dbconfig, options);
   }
 
   public pool: Pool;
+  public client: AuthClient;
 
   private readonly tables = AuthTableNames;
 

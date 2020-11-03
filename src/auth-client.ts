@@ -843,22 +843,22 @@ export class AuthClient {
     const rows = await query.executeQuery();
     if (rows.results && rows.results.length > 0) {
       return {
-        username: rows.results[0].username,
-        email: rows.results[0].email,
-        email_verfified: rows.results[0].email_verfified,
-        first_name: rows.results[0].first_name,
-        last_name: rows.results[0].last_name,
-        address_1: rows.results[0].address_1,
-        address_2: rows.results[0].address_2,
-        country: rows.results[0].country,
-        state: rows.results[0].state,
-        city: rows.results[0].city,
-        zip: rows.results[0].zip,
-        company_name: rows.results[0].company_name,
-        job_title: rows.results[0].job_title,
-        date_created: rows.results[0].date_created,
-        phone: rows.results[0].phone,
-        dob: rows.results[0].dob,
+        username: rows.results[0].username ?? undefined,
+        email: rows.results[0].email ?? undefined,
+        email_verfified: rows.results[0].email_verfified ?? undefined,
+        first_name: rows.results[0].first_name ?? undefined,
+        last_name: rows.results[0].last_name ?? undefined,
+        address_1: rows.results[0].address_1 ?? undefined,
+        address_2: rows.results[0].address_2 ?? undefined,
+        country: rows.results[0].country ?? undefined,
+        state: rows.results[0].state ?? undefined,
+        city: rows.results[0].city ?? undefined,
+        zip: rows.results[0].zip ?? undefined,
+        company_name: rows.results[0].company_name ?? undefined,
+        job_title: rows.results[0].job_title ?? undefined,
+        date_created: rows.results[0].date_created ?? undefined,
+        phone: rows.results[0].phone ?? undefined,
+        dob: rows.results[0].dob ?? undefined,
         password: undefined
       }
     } else {

@@ -3,6 +3,7 @@ import assert from 'assert';
 import { AuthClient } from '../src/auth-client';
 import { generatePasswordHash, generateRequestToken, generateSalt, generateSessionToken, randomChars } from '../src/auth-crypto';
 import { AuthTesting } from '../src/auth-testing';
+import { IUserInfo } from '../src/classes/user-info';
 
 describe('Crypto', () => {
 
@@ -186,6 +187,61 @@ describe('AuthTesting', () => {
   it('Should delete all tables', async () => {
 
     await platform.ResetAuthTables();
+
+  });
+
+});
+
+describe('AuthClient', () => {
+
+  let client: AuthClient;
+  let platform: AuthTesting;
+
+  before(() => {
+    platform = new AuthTesting({
+      host: 'localhost',
+      user: 'root',
+      password: '2v&kJe^jf%!&jG>WiwieFReVLEeydmqGWV.o)mvp83W7,mz]rrv!rq3!C7hL6o+h',
+      port: 3306,
+      database: 'myApp'
+    });
+
+    client = platform.client;
+  });
+
+  beforeEach(async () => {
+    await platform.ResetAuthTables();
+  });
+
+  describe('GetAccountInfo', () => {
+
+    it('Should return user as expected', async () => {
+
+      const user: IUserInfo = {
+        email: 'test@test.net',
+        username: 'JohnDoe1',
+        password: 'Test123!'
+      }
+
+      const createdUser = await client.Register(user);
+
+      const dbUser = await client.GetAccountInfo(createdUser.id);
+
+      assert.strictEqual(dbUser.first_name, user.first_name);
+      assert.strictEqual(dbUser.last_name, user.last_name);
+      assert.strictEqual(dbUser.address_1, user.address_1);
+      assert.strictEqual(dbUser.address_2, user.address_2);
+      assert.strictEqual(dbUser.state, user.state);
+      assert.strictEqual(dbUser.city, user.city);
+      assert.strictEqual(dbUser.zip, user.zip);
+      assert.strictEqual(dbUser.company_name, user.company_name);
+      assert.strictEqual(dbUser.job_title, user.job_title);
+      assert.strictEqual(dbUser.country, user.country);
+      assert.strictEqual(dbUser.dob, user.dob);
+      assert.strictEqual(dbUser.last_name, user.last_name);
+      assert.strictEqual(dbUser.phone, user.phone);
+
+    });
 
   });
 
