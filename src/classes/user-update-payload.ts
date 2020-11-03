@@ -6,7 +6,7 @@ export interface IUserUpdatePayload {
   country?: string;
   city?: string;
   state?: string;
-  zip?: number;
+  zip?: string;
   company_name?: string;
   job_title?: string;
   phone?: string;
