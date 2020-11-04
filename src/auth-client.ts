@@ -625,8 +625,9 @@ export class AuthClient {
         id: rows.results[0].id,
         email: rows.results[0].email,
         first_name: rows.results[0].first_name,
-        last_name: rows.results[0].last_name
-      })
+        last_name: rows.results[0].last_name,
+        username: rows.results[0].username
+      });
     } else {
       throw new Error('No user found');
     }
