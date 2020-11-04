@@ -1,6 +1,6 @@
 {
   "name": "tegridy",
-  "version": "0.9.22",
+  "version": "0.9.23",
   "description": "Lightweight authentication library for Node.js",
   "main": "index.js",
   "scripts": {

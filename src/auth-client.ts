@@ -75,6 +75,20 @@ export class AuthClient {
     });
   }
 
+  private async useConnection<T>(fn: (dbconn: PoolConnection) => Promise<T>) {
+    const conn = await this.getConnection();
+
+    try {
+      const output = await fn(conn);
+      conn.release();
+      return output;
+    } catch (error) {
+      conn.release();
+      throw error;
+    }
+
+  }
+
   /// PUBLIC METHODS
 
   // #region TOKEN MANAGEMENT
@@ -87,43 +101,7 @@ export class AuthClient {
    * @returns the string token
    */
   public async RequestForgeryToken(requestTokenFromHeaders?: string): Promise<string> {
-    const dbconn = await this.getConnection();
-
-    try {
-
-      if (requestTokenFromHeaders) {
-        const qString = `DELETE FROM ${this.tableNames.forgeryTokenStore} WHERE session_token = @session_token`;
-
-        const query = new MySqlQuery(qString, dbconn, {
-          parameters: {
-            session_token: requestTokenFromHeaders
-          }
-        });
-        await query.executeNonQuery();
-      }
-
-      const token = await generateRequestToken();
-
-      const qString = `INSERT INTO ${this.tableNames.forgeryTokenStore} (session_token, date_created) VALUES ( @session_token , @date_created)`;
-
-      const query = new MySqlQuery(qString, dbconn, {
-        parameters: {
-          session_token: token,
-          date_created: new Date()
-        }
-      });
-      const result = await query.executeNonQuery();
-
-      dbconn.release();
-
-      return token;
-
-    } catch (err) {
-
-      dbconn.release();
-      throw err;
-
-    }
+    return await this.useConnection((dbconn) => this._requestAntiForgeryToken(dbconn, requestTokenFromHeaders));
   }
 
   /**
@@ -131,28 +109,7 @@ export class AuthClient {
    * @param requestToken The token gathered from the header of the request
    */
   public async ValidateRequest(requestToken: string) {
-    const dbconn = await this.getConnection();
-
-    try {
-
-      const qString = `SELECT COUNT(id) FROM ${this.tableNames.forgeryTokenStore} WHERE session_token=@session_token`;
-      const query = new MySqlQuery(qString, dbconn, {
-        parameters: {
-          session_token: requestToken
-        }
-      });
-
-      const count: number = await query.executeScalar();
-      dbconn.release();
-      return count > 0;
-
-    } catch (error) {
-
-      dbconn.release();
-      throw error;
-
-    }
-
+    return await this.useConnection((dbconn) => this._validateRequest(requestToken, dbconn));
   }
 
   /**
@@ -161,19 +118,7 @@ export class AuthClient {
    * @param dbconn (optional) MySQL connection to utilize. If none is supplied, one will be created.
    */
   public async ValidateSession(sessionToken: string) {
-    const dbconn = await this.getConnection();
-
-    try {
-
-      return await this._validateUserSession(sessionToken, dbconn);
-
-    } catch (error) {
-
-      dbconn.release();
-      throw error;
-
-    }
-
+    return await this.useConnection((dbconn) => this._validateSession(sessionToken, dbconn));
   }
 
   // #endregion
@@ -187,88 +132,7 @@ export class AuthClient {
    * @returns The identity of the user and session token or undefined if invalid login
    */
   public async Login(sessionToken?: string, loginRequest?: Partial<ILoginRequest>) {
-    const dbconn = await this.getConnection();
-
-    try {
-      /**
-       * if a session token is supplied:
-       *  - Attempt to validate the current session token
-       *    - If session token is valid, update the token date and return the user
-       */
-      if (sessionToken) {
-        const user = await this._validateUserSession(sessionToken, dbconn);
-        if (user) {
-          await this._updateUserSession(user.id, sessionToken, dbconn);
-          await this._cleanUserSessions(user.id, dbconn);
-          dbconn.release();
-          return { user, sessionToken: sessionToken } as ILoginResponse;
-        } else {
-          throw new Error('Session Token invalid');
-        }
-      }
-
-      /**
-       * If a sessionToken was not provided or is not valid, we need to look for login credentials
-       */
-      if (loginRequest) {
-        if (!loginRequest.email) {
-          throw new Error('Email not provided');
-        }
-
-        if (!loginRequest.password) {
-          throw new Error('Password not provided');
-        }
-
-        /**
-         * Get the user credientials according to the email supplied.
-         *  - If no email matching, return void
-         *  - If email and password match, get and return user identity and new sessionToken
-         */
-        const user = await this._getUser(loginRequest.email, dbconn);
-        if (user && user.id) {
-          const salt: string = await this._getStoredSaltHash(user.id, dbconn);
-          const passHash: string = await generatePasswordHash(loginRequest.password, salt, this.hash_iterations);
-
-          const qString = `SELECT COUNT(user_id) FROM ${this.tableNames.passwordStore} WHERE password=@password AND user_id=@user_id`;
-          const query = new MySqlQuery(qString, dbconn, {
-            parameters: {
-              password: passHash,
-              user_id: user.id,
-            }
-          });
-
-          const userCount: number = await query.executeScalar();
-          if (userCount === 1) {
-            await user.getUserRoles(this.tableNames.userRoleStore, dbconn);
-
-            await this._cleanUserSessions(user.id, dbconn);
-            const sessionPayload = await generateSessionToken();
-            const sessionResult = await this._createUserSession(user.id, sessionPayload.selector, sessionPayload.token, dbconn);
-
-            if (!sessionResult) {
-              throw new Error('Unable to create a new sessionToken for the user');
-            }
-
-            await this._cleanUserSessions(user.id, dbconn);
-            dbconn.release();
-
-            return { user, sessionToken: sessionPayload.token + sessionPayload.selector } as ILoginResponse;
-
-          } else {
-            throw new Error('No matching password hash found for the login attempt');
-          }
-        } else {
-          throw new Error('No matching email found for the login attempt');
-        }
-      } else {
-        throw new Error('No login request payload provided');
-      }
-    } catch (error) {
-
-      dbconn.release();
-      throw error;
-
-    }
+    return await this.useConnection((dbconn) => this._login(dbconn, sessionToken, loginRequest));
   }
 
   /**
@@ -276,29 +140,7 @@ export class AuthClient {
    * @param sessionToken the session token to destroy
    */
   public async Logout(sessionToken: string) {
-    const dbconn = await this.getConnection();
-
-    try {
-
-      const user = await this._validateUserSession(sessionToken, dbconn);
-
-      if (user) {
-        const destroyResult: boolean = await this._destroyUserSession(user.id, sessionToken, dbconn);
-        dbconn.release();
-
-        if (destroyResult) {
-          return true;
-        } else {
-          throw new Error('Unable to destroy user session');
-        }
-      } else {
-        dbconn.release();
-        return false;
-      }
-    } catch (error) {
-      dbconn.release();
-      throw error;
-    }
+    return await this.useConnection((dbconn) => this._logout(sessionToken, dbconn));
   }
 
   // #endregion
@@ -312,64 +154,7 @@ export class AuthClient {
    * @returns The identity of the newly registered user
    */
   public async Register(userInfo: IUserInfo) {
-
-    if (!userInfo.email) {
-      throw new Error('Email not provided in register method');
-    }
-
-    if (!userInfo.username) {
-      throw new Error('Username not provided in register method');
-    }
-
-    if (!userInfo.password) {
-      throw new Error('Password not provided in register method');
-    }
-
-    const dbconn = await this.getConnection();
-
-    try {
-
-      for (const field of this.unique_fields) {
-        if (field === 'email') {
-          if (!await this._isUniqueEmail(userInfo.email, dbconn)) {
-            throw new Error('Duplicate email provided');
-          }
-        }
-
-        if (field === 'username') {
-          if (!await this._isUniqueUsername(userInfo.username, dbconn)) {
-            throw new Error('Duplicate email provided');
-          }
-        }
-      }
-
-      const user = await this._createNewUser(userInfo, dbconn);
-      if (user && user.id) {
-        const salt = await this._createUserSaltKey(user, dbconn);
-        if (salt) {
-          const passwordSave = await this._storeUserPassword(user.id, userInfo.password, salt, dbconn);
-          if (passwordSave) {
-            dbconn.release();
-            return user;
-          } else {
-            dbconn.release();
-            throw new Error('An error occurred (code 3)');
-          }
-        } else {
-          dbconn.release();
-          throw new Error('An error occured (code 2)');
-        }
-      } else {
-        dbconn.release();
-        throw new Error('An error occurred (code 1)');
-      }
-
-    } catch (error) {
-
-      dbconn.release();
-      throw error;
-
-    }
+    return await this.useConnection((dbconn) => this._register(userInfo, dbconn));
   }
 
   /**
@@ -377,28 +162,7 @@ export class AuthClient {
    * @param arg UserIdentity or User Id in string form
    */
   public async GetAccountInfo(userId: number) {
-    if (typeof userId !== 'number') {
-      throw new Error('User Id must be numeric type');
-    }
-
-    if (userId > 0) {
-      const dbconn = await this.getConnection();
-
-      try {
-
-        const userInfo = await this._getUserInfo(userId, dbconn);
-        dbconn.release();
-        return userInfo;
-
-      } catch (error) {
-
-        dbconn.release();
-        throw error;
-
-      }
-    } else {
-      throw new Error('Invalid user.id');
-    }
+    return await this.useConnection((dbconn) => this._getUserInfo(userId, dbconn));
   }
 
   /**
@@ -408,25 +172,7 @@ export class AuthClient {
    * @param userInfo 
    */
   public async UpdateAccountInfo(userId: number, userInfo: IUserUpdatePayload) {
-
-    if (!userInfo) {
-      throw new Error('No userInfo supplied');
-    }
-
-    const dbconn = await this.getConnection();
-
-    try {
-
-      const user = await this._updateUser(userId, userInfo, dbconn);
-      dbconn.release();
-      return user;
-
-    } catch (error) {
-
-      dbconn.release();
-      throw error;
-
-    }
+    return await this.useConnection((dbconn) => this._updateUser(userId, userInfo, dbconn))
   }
 
   /**
@@ -435,30 +181,7 @@ export class AuthClient {
    * @param username 
    */
   public async UpdateUsername(userId: number, username: string) {
-    if (!userId || userId <= 0) {
-      throw new Error('Invalid user id');
-    }
-
-    if (!username) {
-      throw new Error('Invalid username');
-    }
-
-    const dbconn = await this.getConnection();
-
-    try {
-      if (this.unique_fields.indexOf('username') && !(await this._isUniqueUsername(username, dbconn))) {
-        throw new Error('Username is not unique');
-      }
-
-      const user = this._updateUsername(userId, username, dbconn);
-      dbconn.release();
-      return user;
-
-    }
-    catch (error) {
-      dbconn.release();
-      throw error;
-    }
+    return await this.useConnection((dbconn) => this._updateUsername(userId, username, dbconn));
   }
 
   // #endregion
@@ -466,73 +189,11 @@ export class AuthClient {
   // #region PASSWORD
 
   public async RequestPasswordReset(email: string) {
-    if (!email) {
-      throw new Error('No email supplied');
-    }
-
-    if (!this.email_regex.test(email)) {
-      throw new Error('Supplied email is improperly formatted');
-    }
-
-    if (email.length > 60) {
-      throw new Error('Email length must be shorter than 60 characters');
-    }
-
-    const dbconn = await this.getConnection();
-    try {
-
-      const user = await this._getUser(email, dbconn);
-      if (!user) {
-        throw new Error('No user matching supplied email');
-      }
-
-      const key = await this._createPasswordResetKey(email, dbconn);
-
-      dbconn.release();
-      return key;
-
-    } catch (error) {
-
-      dbconn.release();
-      throw error;
-
-    }
+    return await this.useConnection((dbconn) => this._requestPasswordReset(email, dbconn));
   }
 
   public async UpdatePassword(payload: IPasswordResetPayload) {
-    if (!payload) {
-      throw new Error('No payload supplied');
-    }
-    if (!payload.email) {
-      throw new Error('No email supplied');
-    }
-    if (!payload.password) {
-      throw new Error('No password supplied');
-    }
-    if (!payload.secret) {
-      throw new Error('No reset key supplied');
-    }
-    if (!this.email_regex.test(payload.email)) {
-      throw new Error('Supplied email is improperly formatted');
-    }
-    if (payload.email.length > 60) {
-      throw new Error('Email length must be shorter than 60 characters');
-    }
-
-    const dbconn = await this.getConnection();
-
-    try {
-
-      const result = await this._updatePassword(payload, dbconn);
-      dbconn.release();
-      return result;
-
-    } catch (error) {
-
-      dbconn.release();
-      throw error;
-
-    }
+    return await this.useConnection((dbconn) => this._updatePassword(payload, dbconn))
   }
 
   // #endregion
@@ -546,28 +207,7 @@ export class AuthClient {
    * @returns the verification token to email to a user
    */
   public async RequestEmailVerification(userId: number, email: string) {
-    if (!userId || userId <= 0) {
-      throw new Error('Invalid user id');
-    }
-
-    if (!email) {
-      throw new Error('Invalid email');
-    }
-
-    const dbconn = await this.getConnection();
-
-    try {
-
-      const result = await this._createEmailVerificationKey(userId, email, dbconn);
-      dbconn.release();
-      return result;
-
-    } catch (error) {
-
-      dbconn.release();
-      throw error;
-
-    }
+    return await this.useConnection((dbconn) => this._requestEmailVerification(userId, email, dbconn));
   }
 
   /**
@@ -576,27 +216,7 @@ export class AuthClient {
    * @param email 
    */
   public async UpdateEmail(userId: number, email: string) {
-    if (!userId || userId <= 0) {
-      throw new Error('Invalid user id');
-    }
-
-    if (!email || !this.email_regex.test(email)) {
-      throw new Error('Invalid email');
-    }
-
-    const dbconn = await this.getConnection();
-
-    try {
-
-      const user = await this._updateEmail(userId, email, dbconn);
-      dbconn.release();
-      return user;
-
-    } catch (error) {
-      dbconn.release();
-      throw error;
-    }
-
+    return await this.useConnection((dbconn) => this._updateEmail(userId, email, dbconn));
   }
 
   /**
@@ -604,29 +224,8 @@ export class AuthClient {
    * @param email 
    * @param key 
    */
-  public async VerifyEmail(email: string, key: string) {
-
-    if (!email) {
-      throw new Error('Invalid email');
-    }
-
-    if (!key) {
-      throw new Error('Invalid validation token');
-    }
-
-    const dbconn = await this.getConnection();
-
-    try {
-
-      const user = await this._getUser(email, dbconn);
-      const result = await this._verifyEmail(user.id, email, key, dbconn);
-      dbconn.release();
-      return result;
-
-    } catch (error) {
-      dbconn.release();
-      throw error;
-    }
+  public async VerifyEmail(email: string, verificationKey: string) {
+    return await this.useConnection((dbconn) => this._verifyEmail(email, verificationKey, dbconn));
   }
 
   //#endregion
@@ -635,7 +234,47 @@ export class AuthClient {
 
   // #region TOKEN/SESSION MANAGEMENT
 
-  private async _validateUserSession(sessionToken: string, dbconn: PoolConnection) {
+  private async _requestAntiForgeryToken(dbconn: PoolConnection, requestTokenFromHeaders?: string) {
+
+    if (requestTokenFromHeaders) {
+      const qString = `DELETE FROM ${this.tableNames.forgeryTokenStore} WHERE session_token = @session_token`;
+
+      const query = new MySqlQuery(qString, dbconn, {
+        parameters: {
+          session_token: requestTokenFromHeaders
+        }
+      });
+      await query.executeNonQuery();
+    }
+
+    const token = await generateRequestToken();
+
+    const qString = `INSERT INTO ${this.tableNames.forgeryTokenStore} (session_token, date_created) VALUES ( @session_token , @date_created)`;
+
+    const query = new MySqlQuery(qString, dbconn, {
+      parameters: {
+        session_token: token,
+        date_created: new Date()
+      }
+    });
+    const result = await query.executeNonQuery();
+
+    return token;
+  }
+
+  private async _validateRequest(requestToken: string, dbconn: PoolConnection) {
+    const qString = `SELECT COUNT(id) FROM ${this.tableNames.forgeryTokenStore} WHERE session_token=@session_token`;
+    const query = new MySqlQuery(qString, dbconn, {
+      parameters: {
+        session_token: requestToken
+      }
+    });
+
+    const count: number = await query.executeScalar();
+    return count > 0;
+  }
+
+  private async _validateSession(sessionToken: string, dbconn: PoolConnection) {
 
     if (sessionToken.length !== 512) {
       throw new Error('Session token invalid: Code 1');
@@ -687,6 +326,96 @@ export class AuthClient {
     const user = await this._getUser(userId, dbconn);
     return user;
 
+  }
+
+  private async _login(dbconn: PoolConnection, sessionToken?: string, loginRequest?: Partial<ILoginRequest>) {
+    /**
+      * if a session token is supplied:
+      *  - Attempt to validate the current session token
+      *    - If session token is valid, update the token date and return the user
+      */
+    if (sessionToken) {
+      const user = await this._validateSession(sessionToken, dbconn);
+      if (user) {
+        await this._updateUserSession(user.id, sessionToken, dbconn);
+        await this._cleanUserSessions(user.id, dbconn);
+        return { user, sessionToken: sessionToken } as ILoginResponse;
+      } else {
+        throw new Error('Session Token invalid');
+      }
+    }
+
+    /**
+     * If a sessionToken was not provided or is not valid, we need to look for login credentials
+     */
+    if (loginRequest) {
+      if (!loginRequest.email) {
+        throw new Error('Email not provided');
+      }
+
+      if (!loginRequest.password) {
+        throw new Error('Password not provided');
+      }
+
+      /**
+       * Get the user credientials according to the email supplied.
+       *  - If no email matching, return void
+       *  - If email and password match, get and return user identity and new sessionToken
+       */
+      const user = await this._getUser(loginRequest.email, dbconn);
+      if (user && user.id) {
+        const salt: string = await this._getStoredSaltHash(user.id, dbconn);
+        const passHash: string = await generatePasswordHash(loginRequest.password, salt, this.hash_iterations);
+
+        const qString = `SELECT COUNT(user_id) FROM ${this.tableNames.passwordStore} WHERE password=@password AND user_id=@user_id`;
+        const query = new MySqlQuery(qString, dbconn, {
+          parameters: {
+            password: passHash,
+            user_id: user.id,
+          }
+        });
+
+        const userCount: number = await query.executeScalar();
+        if (userCount === 1) {
+          await user.getUserRoles(this.tableNames.userRoleStore, dbconn);
+
+          await this._cleanUserSessions(user.id, dbconn);
+          const sessionPayload = await generateSessionToken();
+          const sessionResult = await this._createUserSession(user.id, sessionPayload.selector, sessionPayload.token, dbconn);
+
+          if (!sessionResult) {
+            throw new Error('Unable to create a new sessionToken for the user');
+          }
+
+          await this._cleanUserSessions(user.id, dbconn);
+
+          return { user, sessionToken: sessionPayload.token + sessionPayload.selector } as ILoginResponse;
+
+        } else {
+          throw new Error('No matching password hash found for the login attempt');
+        }
+      } else {
+        throw new Error('No matching email found for the login attempt');
+      }
+    } else {
+      throw new Error('No login request payload provided');
+    }
+  }
+
+  private async _logout(sessionToken: string, dbconn: PoolConnection) {
+    const user = await this._validateSession(sessionToken, dbconn);
+
+    if (user) {
+      const destroyResult: boolean = await this._destroyUserSession(user.id, sessionToken, dbconn);
+
+      if (destroyResult) {
+        return true;
+      } else {
+        throw new Error('Unable to destroy user session');
+      }
+    } else {
+      return false;
+    }
   }
 
   private async _destroyUserSession(userId: number, sessionToken: string, dbconn: PoolConnection) {
@@ -833,6 +562,11 @@ export class AuthClient {
   // #region USER MANAGEMENT
 
   private async _getUserInfo(userId: number, dbconn: PoolConnection): Promise<IUserInfo> {
+
+    if (typeof userId !== 'number') {
+      throw new Error('User Id must be numeric type');
+    }
+
     const qString = `SELECT * FROM ${this.tableNames.userTable} WHERE id=@id`;
     const query = new MySqlQuery(qString, dbconn, {
       parameters: {
@@ -898,6 +632,52 @@ export class AuthClient {
     }
   }
 
+  private async _register(userInfo: IUserInfo, dbconn: PoolConnection) {
+
+    if (!userInfo.email) {
+      throw new Error('Email not provided in register method');
+    }
+
+    if (!userInfo.username) {
+      throw new Error('Username not provided in register method');
+    }
+
+    if (!userInfo.password) {
+      throw new Error('Password not provided in register method');
+    }
+
+    for (const field of this.unique_fields) {
+      if (field === 'email') {
+        if (!await this._isUniqueEmail(userInfo.email, dbconn)) {
+          throw new Error('Duplicate email provided');
+        }
+      }
+
+      if (field === 'username') {
+        if (!await this._isUniqueUsername(userInfo.username, dbconn)) {
+          throw new Error('Duplicate email provided');
+        }
+      }
+    }
+
+    const user = await this._createNewUser(userInfo, dbconn);
+    if (user && user.id) {
+      const salt = await this._createUserSaltKey(user, dbconn);
+      if (salt) {
+        const passwordSave = await this._storeUserPassword(user.id, userInfo.password, salt, dbconn);
+        if (passwordSave) {
+          return user;
+        } else {
+          throw new Error('An error occurred (code 3)');
+        }
+      } else {
+        throw new Error('An error occured (code 2)');
+      }
+    } else {
+      throw new Error('An error occurred (code 1)');
+    }
+  }
+
   private async _createNewUser(userInfo: IUserInfo, dbconn: PoolConnection) {
     const qString = `INSERT INTO ${this.tableNames.userTable} (username, email, first_name, last_name, 
       address_1, address_2, country, state, city, zip, company_name, job_title, 
@@ -933,6 +713,11 @@ export class AuthClient {
   }
 
   private async _updateUser(userId: number, userInfo: IUserUpdatePayload, dbconn: PoolConnection) {
+
+    if (!userInfo) {
+      throw new Error('No userInfo supplied');
+    }
+
     const qString = `UPDATE ${this.tableNames.userTable} SET first_name=@first_name, last_name=@last_name, 
       address_1=@address_1, address_2=@address_2, country=@country, state=@state, city=@city, zip=@zip, company_name=@company_name, job_title=@job_title, 
       phone=@phone, dob=@dob WHERE id=@id`;
@@ -972,6 +757,19 @@ export class AuthClient {
   }
 
   private async _updateUsername(userId: number, username: string, dbconn: PoolConnection) {
+
+    if (!userId || userId <= 0) {
+      throw new Error('Invalid user id');
+    }
+
+    if (!username) {
+      throw new Error('Invalid username');
+    }
+
+    if (this.unique_fields.indexOf('username') && !(await this._isUniqueUsername(username, dbconn))) {
+      throw new Error('Username is not unique');
+    }
+
     const qString = `UPDATE ${this.tableNames.userTable} SET username=@username WHERE id=@id`;
     const query = new MySqlQuery(qString, dbconn, {
       parameters: {
@@ -989,7 +787,48 @@ export class AuthClient {
 
   // #region PASSWORD
 
+  private async _requestPasswordReset(email: string, dbconn: PoolConnection) {
+    if (!email) {
+      throw new Error('No email supplied');
+    }
+
+    if (!this.email_regex.test(email)) {
+      throw new Error('Supplied email is improperly formatted');
+    }
+
+    if (email.length > 60) {
+      throw new Error('Email length must be shorter than 60 characters');
+    }
+
+    const user = await this._getUser(email, dbconn);
+    if (!user) {
+      throw new Error('No user matching supplied email');
+    }
+
+    return await this._createPasswordResetKey(email, dbconn);
+
+  }
+
   private async _updatePassword(payload: IPasswordResetPayload, dbconn: PoolConnection) {
+
+    if (!payload) {
+      throw new Error('No payload supplied');
+    }
+    if (!payload.email) {
+      throw new Error('No email supplied');
+    }
+    if (!payload.password) {
+      throw new Error('No password supplied');
+    }
+    if (!payload.secret) {
+      throw new Error('No reset key supplied');
+    }
+    if (!this.email_regex.test(payload.email)) {
+      throw new Error('Supplied email is improperly formatted');
+    }
+    if (payload.email.length > 60) {
+      throw new Error('Email length must be shorter than 60 characters');
+    }
 
     // Get the count of non expired matching password reset keys
     let qString = `SELECT COUNT(id) FROM ${this.tableNames.passResetKeyStore} WHERE email=@email AND reset_key=@reset_key AND date_created > NOW() - 1;`;
@@ -1147,6 +986,14 @@ export class AuthClient {
   }
 
   private async _updateEmail(userId: number, email: string, dbconn: PoolConnection) {
+    if (!userId || userId <= 0) {
+      throw new Error('Invalid user id');
+    }
+
+    if (!email || !this.email_regex.test(email)) {
+      throw new Error('Invalid email');
+    }
+
     const qString = `UPDATE ${this.tableNames.userTable} SET email=@email WHERE id=@id`;
     const query = new MySqlQuery(qString, dbconn, {
       parameters: {
@@ -1160,7 +1007,15 @@ export class AuthClient {
     return await this._getUser(userId, dbconn);
   }
 
-  private async _createEmailVerificationKey(userId: number, email: string, dbconn: PoolConnection) {
+  private async _requestEmailVerification(userId: number, email: string, dbconn: PoolConnection) {
+
+    if (!userId || userId <= 0) {
+      throw new Error('Invalid user id');
+    }
+
+    if (!email) {
+      throw new Error('Invalid email');
+    }
 
     // Delete the non matching pending emails
     let qString = `DELETE FROM ${this.tableNames.emailVerifications} WHERE email!=@email AND user_id=@user_id`;
@@ -1195,13 +1050,23 @@ export class AuthClient {
     }
   }
 
-  private async _verifyEmail(userId: number, email: string, secret: string, dbconn: PoolConnection) {
+  private async _verifyEmail(email: string, secret: string, dbconn: PoolConnection) {
+    if (!email) {
+      throw new Error('Invalid email');
+    }
+
+    if (!secret) {
+      throw new Error('Invalid validation token');
+    }
+
+    const user = await this._getUser(email, dbconn);
+
     let qString = `SELECT COUNT(id) FROM ${this.tableNames.emailVerifications} WHERE secret=@secret AND user_id=@user_id AND email=@email`;
     let query = new MySqlQuery(qString, dbconn, {
       parameters: {
         email,
         secret,
-        user_id: userId
+        user_id: user.id
       }
     });
 
@@ -1214,7 +1079,7 @@ export class AuthClient {
     qString = `UPDATE ${this.tableNames.userTable} email_verified=1 WHERE id=@id`;
     query = new MySqlQuery(qString, dbconn, {
       parameters: {
-        id: userId
+        id: user.id
       }
     });
 
@@ -1227,13 +1092,13 @@ export class AuthClient {
     qString = `DELETE FROM ${this.tableNames.emailVerifications} WHERE user_id=@userId`;
     query = new MySqlQuery(qString, dbconn, {
       parameters: {
-        user_id: userId
+        user_id: user.id
       }
     });
 
     await query.executeNonQuery();
 
-    return this._getUserInfo(userId, dbconn);
+    return this._getUserInfo(user.id, dbconn);
   }
 
   // #endregion

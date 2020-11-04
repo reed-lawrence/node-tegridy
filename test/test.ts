@@ -231,7 +231,6 @@ describe('AuthClient', () => {
       const createdUser = await client.Register(user);
 
       const dbUser = await client.GetAccountInfo(createdUser.id);
-      console.log(dbUser);
       assert.strictEqual(dbUser.first_name, user.first_name);
       assert.strictEqual(dbUser.last_name, user.last_name);
       assert.strictEqual(dbUser.address_1, user.address_1);
@@ -249,5 +248,6 @@ describe('AuthClient', () => {
     });
 
   });
+
 
 });
