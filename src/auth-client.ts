@@ -1077,7 +1077,7 @@ export class AuthClient {
       throw new Error('No matching email verification keys found');
     }
 
-    qString = `UPDATE ${this.tableNames.userTable} email_verified=1 WHERE id=@id`;
+    qString = `UPDATE ${this.tableNames.userTable} SET email_verified=1 WHERE id=@id`;
     query = new MySqlQuery(qString, dbconn, {
       parameters: {
         id: user.id
