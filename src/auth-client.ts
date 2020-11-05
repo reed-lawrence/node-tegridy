@@ -992,6 +992,11 @@ export class AuthClient {
       throw new Error('Invalid email');
     }
 
+    const isUnique = await this._isUniqueEmail(email, dbconn);
+    if (!isUnique) {
+      throw new Error('Email is not unique');
+    }
+
     const qString = `UPDATE ${this.tableNames.userTable} SET email=@email WHERE id=@id`;
     const query = new MySqlQuery(qString, dbconn, {
       parameters: {
