@@ -859,7 +859,6 @@ export class AuthClient {
         const passDelResult = await query.executeNonQuery();
         if (!passDelResult.affectedRows) {
           throw new Error('Unable to delete password corresponding to the user specified');
-          return false;
         }
 
         qString = `DELETE FROM ${this.tableNames.hashSaltStore} WHERE user_id=@user_id`;
@@ -872,10 +871,12 @@ export class AuthClient {
         const hashDelResult = await query.executeNonQuery();
         if (!hashDelResult.affectedRows) {
           throw new Error('Unable to delete the hash salt corresponding to the user specified');
-          return false;
         }
 
-        const salt = await generateSalt();
+        const salt = await this._createUserSaltKey(user, dbconn);
+        if (!salt) {
+          throw new Error('An error occured (code 2)');
+        }
         const storeResult = await this._storeUserPassword(user.id, payload.password, salt, dbconn);
 
         if (storeResult) {
@@ -896,17 +897,13 @@ export class AuthClient {
 
         } else {
           throw new Error('Unable to save user password');
-          return false;
         }
-
 
       } else {
         throw new Error('No matching user found corresponding to email');
-        return false;
       }
     } else {
       throw new Error('No matching reset keys found');
-      return false;
     }
   }
 
