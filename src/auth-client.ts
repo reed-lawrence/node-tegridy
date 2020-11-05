@@ -579,7 +579,7 @@ export class AuthClient {
       return {
         username: rows.results[0].username ?? undefined,
         email: rows.results[0].email ?? undefined,
-        email_verfified: rows.results[0].email_verfified ?? undefined,
+        email_verified: rows.results[0].email_verified ?? undefined,
         first_name: rows.results[0].first_name ?? undefined,
         last_name: rows.results[0].last_name ?? undefined,
         address_1: rows.results[0].address_1 ?? undefined,
