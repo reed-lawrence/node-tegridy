@@ -1,4 +1,4 @@
-import { IUserInfo } from "./user-info";
+import { IUserInfo } from "../entities/user-info";
 
 export interface IAuthClientOptions {
   /**

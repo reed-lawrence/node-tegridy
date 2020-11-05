@@ -6,12 +6,12 @@ import {
   generatePasswordHash, generateRequestToken, generateSalt, generateSessionToken, randomChars
 } from './auth-crypto';
 import { IAuthClientOptions } from './classes/auth-client-options';
-import { IdentityToken } from './classes/identity-token';
+import { IdentityToken } from './entities/identity-token';
 import { ILoginRequest } from './classes/login-request';
 import { ILoginResponse } from './classes/login-response';
 import { IPasswordResetPayload } from './classes/password-reset-payload';
-import { UserIdentity } from './classes/user-identity';
-import { IUserInfo } from './classes/user-info';
+import { UserIdentity } from './entities/user-identity';
+import { IUserInfo } from './entities/user-info';
 import { IUserUpdatePayload } from './classes/user-update-payload';
 import { AuthTableNames } from './constants/table-names';
 
