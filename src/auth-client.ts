@@ -832,7 +832,7 @@ export class AuthClient {
     }
 
     // Get the count of non expired matching password reset keys
-    let qString = `SELECT COUNT(id) FROM ${this.tableNames.passResetKeyStore} WHERE email=@email AND reset_key=@reset_key AND date_created > NOW() - 1;`;
+    let qString = `SELECT COUNT(id) FROM ${this.tableNames.passResetKeyStore} WHERE email=@email AND reset_key=@reset_key AND date_created > date_sub(now(), interval 24 hour);`;
     let query = new MySqlQuery(qString, dbconn, {
       parameters: {
         email: payload.email,
