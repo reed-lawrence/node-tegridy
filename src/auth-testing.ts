@@ -2,9 +2,9 @@ import { MySqlQuery } from "@reed-lawrence/mysql-query";
 import { createPool, Pool, PoolConfig, PoolConnection, escape } from "mysql";
 import { AuthClient } from "./auth-client";
 import { IAuthClientOptions } from "./classes/auth-client-options";
-import { EmailVerificationToken } from "./entities/email-verification-token";
+import { EmailVerificationToken } from "./types/email-verification-token";
 import { AuthTableNames } from "./constants/table-names";
-import { PasswordResetRequest } from "./entities/password-reset-request";
+import { PasswordResetRequest } from "./types/password-reset-request";
 
 export class AuthTesting {
 

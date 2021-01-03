@@ -6,14 +6,15 @@ import {
   generatePasswordHash, generateRequestToken, generateSalt, generateSessionToken, randomChars
 } from './auth-crypto';
 import { IAuthClientOptions } from './classes/auth-client-options';
-import { IdentityToken } from './entities/identity-token';
 import { ILoginRequest } from './classes/login-request';
 import { ILoginResponse } from './classes/login-response';
 import { IPasswordResetPayload } from './classes/password-reset-payload';
-import { UserIdentity } from './entities/user-identity';
-import { IUserInfo } from './entities/user-info';
+import { UserIdentity } from './types/user-identity';
+import { IUserInfo } from './types/user-info';
 import { IUserUpdatePayload } from './classes/user-update-payload';
 import { AuthTableNames } from './constants/table-names';
+import { CacheService, ICacheService } from './services/cache-service';
+import { AntiForgeryToken, SessionToken } from './types/tokens';
 
 export class AuthClient {
 
@@ -33,7 +34,10 @@ export class AuthClient {
       });
     };
 
-    this.pool = createPool(dbconfig)
+    this.pool = createPool(dbconfig);
+
+    this.cache_service = options?.cache_service ?? new CacheService();
+
     if (options) {
       if (options.concurrent_sessions) { this.concurrent_sessions = options.concurrent_sessions; }
       if (options.hash_iterations) { this.hash_iterations = options.hash_iterations; }
@@ -44,6 +48,8 @@ export class AuthClient {
   public readonly tableNames = AuthTableNames;
 
   public pool: Pool;
+
+  private readonly cache_service: ICacheService;
 
   /**
    * Number of times a password will be hashed via pbkdf2 cyrptography
@@ -98,18 +104,23 @@ export class AuthClient {
    * If a token is provided, the existing token will be removed from the database and a new one will be assigned
    * If a token is not provided, one is created and returned.
    * @param requestTokenFromHeaders (optional) Corresponds to the __requesttoken to be passed from each requests headers
-   * @returns the string token
+   * @returns the token
    */
-  public async RequestForgeryToken(requestTokenFromHeaders?: string): Promise<string> {
-    return await this.useConnection((dbconn) => this._requestAntiForgeryToken(dbconn, requestTokenFromHeaders));
+  public RequestForgeryToken(requestTokenFromHeaders?: string) {
+    return this._requestAntiForgeryToken(requestTokenFromHeaders)
   }
 
   /**
    * Validate the request token of a request
    * @param requestToken The token gathered from the header of the request
    */
-  public async ValidateRequest(requestToken: string) {
-    return await this.useConnection((dbconn) => this._validateRequest(requestToken, dbconn));
+  public ValidateRequest(requestToken: string) {
+    const token = this.cache_service.AntiForgeryTokens.Get(requestToken);
+    if (token) {
+      return true;
+    } else {
+      return false;
+    }
   }
 
   /**
@@ -132,7 +143,7 @@ export class AuthClient {
    * @returns The identity of the user and session token or undefined if invalid login
    */
   public async Login(sessionToken?: string, loginRequest?: Partial<ILoginRequest>) {
-    return await this.useConnection((dbconn) => this._login(dbconn, sessionToken, loginRequest));
+    return await this.useConnection((dbconn) => this._login(dbconn, loginRequest, sessionToken));
   }
 
   /**
@@ -234,30 +245,20 @@ export class AuthClient {
 
   // #region TOKEN/SESSION MANAGEMENT
 
-  private async _requestAntiForgeryToken(dbconn: PoolConnection, requestTokenFromHeaders?: string) {
+  private async _requestAntiForgeryToken(requestTokenFromHeaders?: string) {
 
     if (requestTokenFromHeaders) {
-      const qString = `DELETE FROM ${this.tableNames.forgeryTokenStore} WHERE session_token = @session_token`;
-
-      const query = new MySqlQuery(qString, dbconn, {
-        parameters: {
-          session_token: requestTokenFromHeaders
-        }
-      });
-      await query.executeNonQuery();
+      this.cache_service.AntiForgeryTokens.Remove(requestTokenFromHeaders);
     }
 
-    const token = await generateRequestToken();
+    const value = await generateRequestToken();
+    const token = new AntiForgeryToken(
+      {
+        value,
+        date_created: new Date().toISOString()
+      });
 
-    const qString = `INSERT INTO ${this.tableNames.forgeryTokenStore} (session_token, date_created) VALUES ( @session_token , @date_created)`;
-
-    const query = new MySqlQuery(qString, dbconn, {
-      parameters: {
-        session_token: token,
-        date_created: new Date()
-      }
-    });
-    const result = await query.executeNonQuery();
+    this.cache_service.AntiForgeryTokens.Cache(token);
 
     return token;
   }
@@ -284,6 +285,16 @@ export class AuthClient {
     const validator: string = sessionToken.substr(0, splitIndex);
     const selector: string = sessionToken.substr(splitIndex);
 
+    // Attempt to get from cache first
+    const match = this.cache_service.SessionTokens.Get(validator + selector);
+    if (match) {
+      // Attempt to get user from cache
+      const user = this.cache_service.Users.Get(match.user_id);
+      if (user) {
+        return user;
+      }
+    }
+
     // Get the row id from the selector
     let qString = `SELECT id from ${this.tableNames.sessionTokenStore} WHERE selector=@selector`;
     let query = new MySqlQuery(qString, dbconn, {
@@ -308,7 +319,7 @@ export class AuthClient {
     if (!qResult.results[0]) {
       throw new Error('No rows returned corresponding to the Id returned from the given token selector');
     }
-    const storedToken = new IdentityToken({
+    const storedToken = new SessionToken({
       date_created: qResult.results[0].date_created,
       id: qResult.results[0].id,
       selector: qResult.results[0].selector,
@@ -324,27 +335,15 @@ export class AuthClient {
     }
 
     const user = await this._getUser(userId, dbconn);
+
+    // Store the user for future use
+    this.cache_service.Users.Cache(user);
+
     return user;
 
   }
 
-  private async _login(dbconn: PoolConnection, sessionToken?: string, loginRequest?: Partial<ILoginRequest>) {
-    /**
-      * if a session token is supplied:
-      *  - Attempt to validate the current session token
-      *    - If session token is valid, update the token date and return the user
-      */
-    if (sessionToken) {
-      const user = await this._validateSession(sessionToken, dbconn);
-      if (user) {
-        await this._updateUserSession(user.id, sessionToken, dbconn);
-        await this._cleanUserSessions(user.id, dbconn);
-        return { user, sessionToken: sessionToken } as ILoginResponse;
-      } else {
-        throw new Error('Session Token invalid');
-      }
-    }
-
+  private async _login(dbconn: PoolConnection, loginRequest?: Partial<ILoginRequest>, sessionToken?: string) {
     /**
      * If a sessionToken was not provided or is not valid, we need to look for login credentials
      */
@@ -363,43 +362,61 @@ export class AuthClient {
        *  - If email and password match, get and return user identity and new sessionToken
        */
       const user = await this._getUser(loginRequest.email, dbconn);
-      if (user && user.id) {
-        const salt: string = await this._getStoredSaltHash(user.id, dbconn);
-        const passHash: string = await generatePasswordHash(loginRequest.password, salt, this.hash_iterations);
 
-        const qString = `SELECT COUNT(user_id) FROM ${this.tableNames.passwordStore} WHERE password=@password AND user_id=@user_id`;
-        const query = new MySqlQuery(qString, dbconn, {
-          parameters: {
-            password: passHash,
-            user_id: user.id,
-          }
-        });
-
-        const userCount: number = await query.executeScalar();
-        if (userCount === 1) {
-          await user.getUserRoles(this.tableNames.userRoleStore, dbconn);
-
-          await this._cleanUserSessions(user.id, dbconn);
-          const sessionPayload = await generateSessionToken();
-          const sessionResult = await this._createUserSession(user.id, sessionPayload.selector, sessionPayload.token, dbconn);
-
-          if (!sessionResult) {
-            throw new Error('Unable to create a new sessionToken for the user');
-          }
-
-          await this._cleanUserSessions(user.id, dbconn);
-
-          return { user, sessionToken: sessionPayload.token + sessionPayload.selector } as ILoginResponse;
-
-        } else {
-          throw new Error('No matching password hash found for the login attempt');
-        }
-      } else {
+      if (!user || !user.id) {
         throw new Error('No matching email found for the login attempt');
       }
-    } else {
-      throw new Error('No login request payload provided');
+
+      const salt: string = await this._getStoredSaltHash(user.id, dbconn);
+      const passHash: string = await generatePasswordHash(loginRequest.password, salt, this.hash_iterations);
+
+      const qString = `SELECT COUNT(user_id) FROM ${this.tableNames.passwordStore} WHERE password=@password AND user_id=@user_id`;
+      const query = new MySqlQuery(qString, dbconn, {
+        parameters: {
+          password: passHash,
+          user_id: user.id,
+        }
+      });
+
+      const userCount: number = await query.executeScalar();
+      if (userCount !== 1) {
+        throw new Error('No matching password hash found for the login attempt');
+      }
+
+      await user.getUserRoles(this.tableNames.userRoleStore, dbconn);
+
+      await this._cleanUserSessions(user.id, dbconn);
+      const sessionPayload = await generateSessionToken();
+      const sessionResult = await this._createUserSession(user.id, sessionPayload.selector, sessionPayload.token, dbconn);
+
+      if (!sessionResult) {
+        throw new Error('Unable to create a new sessionToken for the user');
+      }
+
+      await this._cleanUserSessions(user.id, dbconn);
+
+      return { user, sessionToken: sessionPayload.token + sessionPayload.selector } as ILoginResponse;
     }
+
+    /**
+      * if a session token is supplied:
+      *  - Attempt to validate the current session token
+      *    - If session token is valid, update the token date and return the user
+      */
+    if (sessionToken) {
+      const user = await this._validateSession(sessionToken, dbconn);
+      if (user) {
+        await this._updateUserSession(user.id, sessionToken, dbconn);
+        await this._cleanUserSessions(user.id, dbconn);
+        return { user, sessionToken: sessionToken } as ILoginResponse;
+      } else {
+        throw new Error('Session Token invalid');
+      }
+    }
+
+    throw new Error('Unable to authenticate user');
+
+
   }
 
   private async _logout(sessionToken: string, dbconn: PoolConnection) {
@@ -446,6 +463,7 @@ export class AuthClient {
 
     const numrows: number = parseInt(await query.executeScalar(), 10);
     if (numrows === 0) {
+      this.cache_service.SessionTokens.Remove(validator + selector);
       return true;
     } else {
       return false;
@@ -465,7 +483,7 @@ export class AuthClient {
         const tokens = await this._getUserIdentityTokens(userId, dbconn);
         tokens.sort((a, b) => a.date_created < b.date_created ? 1 : a.date_created > b.date_created ? -1 : 0);
 
-        const toRemove = new Array<IdentityToken>();
+        const toRemove = new Array<SessionToken>();
         for (let i = this.concurrent_sessions; i < tokens.length; i++) {
           toRemove.push(tokens[i]);
         }
@@ -479,6 +497,7 @@ export class AuthClient {
           });
 
           await query.executeNonQuery();
+          this.cache_service.SessionTokens.Remove(token.value);
         }
       }
     }
@@ -486,7 +505,7 @@ export class AuthClient {
   }
 
   private async _getUserIdentityTokens(userId: number, dbconn: PoolConnection) {
-    const tokenList = new Array<IdentityToken>();
+    const tokenList = new Array<SessionToken>();
 
     const qString = `SELECT * FROM ${this.tableNames.sessionTokenStore} WHERE user_id=@user_id`;
     const query = new MySqlQuery(qString, dbconn, {
@@ -498,7 +517,7 @@ export class AuthClient {
     const rows = await query.executeQuery();
     if (rows.results && rows.results.length > 0) {
       for (const row of rows.results) {
-        tokenList.push(new IdentityToken({
+        tokenList.push(new SessionToken({
           date_created: row.date_created,
           id: row.id,
           selector: row.selector,
@@ -511,18 +530,28 @@ export class AuthClient {
   }
 
   private async _createUserSession(userId: number, selector: string, validator: string, dbconn: PoolConnection) {
+    const now = new Date();
     const qString = `INSERT INTO ${this.tableNames.sessionTokenStore} (user_id, selector, validator, date_created) VALUES (@user_id, @selector, @validator, @date_created)`;
     const query = new MySqlQuery(qString, dbconn, {
       parameters: {
         user_id: userId,
         selector: selector,
         validator: validator,
-        date_created: new Date()
+        date_created: now
       }
     });
 
     const saveResult = await query.executeNonQuery();
     if (saveResult.affectedRows === 1) {
+      this.cache_service.SessionTokens.Cache(
+        new SessionToken({
+          date_created: now.toISOString(),
+          selector,
+          validator,
+          value: validator + selector,
+          user_id: userId
+        })
+      );
       return true;
     } else {
       return false;
@@ -538,22 +567,32 @@ export class AuthClient {
     const validator: string = sessionToken.substr(0, splitIndex);
     const selector: string = sessionToken.substr(splitIndex);
 
+    const now = new Date();
+
     const qString = `UPDATE ${this.tableNames.sessionTokenStore} SET date_created=@date_created WHERE user_id=@user_id AND selector=@selector AND validator=@validator`;
     const query = new MySqlQuery(qString, dbconn, {
       parameters: {
         selector: selector,
         validator: validator,
-        date_created: new Date(),
+        date_created: now,
         user_id: userId
       }
     });
 
     const result = await query.executeNonQuery();
     if (result.affectedRows === 1) {
+      this.cache_service.SessionTokens.Cache(
+        new SessionToken({
+          date_created: now.toISOString(),
+          selector,
+          validator,
+          value: selector + validator,
+          user_id: userId
+        })
+      );
       return true;
     } else {
       throw new Error('Unable to update session date_created');
-      return false;
     }
   }
 
@@ -662,21 +701,21 @@ export class AuthClient {
     }
 
     const user = await this._createNewUser(userInfo, dbconn);
-    if (user && user.id) {
-      const salt = await this._createUserSaltKey(user, dbconn);
-      if (salt) {
-        const passwordSave = await this._storeUserPassword(user.id, userInfo.password, salt, dbconn);
-        if (passwordSave) {
-          return user;
-        } else {
-          throw new Error('An error occurred (code 3)');
-        }
-      } else {
-        throw new Error('An error occured (code 2)');
-      }
-    } else {
+    if (!user || !user.id) {
       throw new Error('An error occurred (code 1)');
     }
+    const salt = await this._createUserSaltKey(user, dbconn);
+
+    if (!salt) {
+      throw new Error('An error occured (code 2)');
+    }
+
+    const passwordSave = await this._storeUserPassword(user.id, userInfo.password, salt, dbconn);
+    if (!passwordSave) {
+      throw new Error('An error occurred (code 3)');
+    }
+
+    return user;
   }
 
   private async _createNewUser(userInfo: IUserInfo, dbconn: PoolConnection) {
@@ -710,7 +749,10 @@ export class AuthClient {
     const qResult = await query.executeNonQuery();
     const userId = qResult.insertId;
 
-    return await this._getUser(userId, dbconn);
+    const user = await this._getUser(userId, dbconn)
+    this.cache_service.Users.Cache(user);
+
+    return user;
   }
 
   private async _updateUser(userId: number, userInfo: IUserUpdatePayload, dbconn: PoolConnection) {
@@ -741,9 +783,12 @@ export class AuthClient {
       }
     });
 
-    const qResult = await query.executeNonQuery();
+    await query.executeNonQuery();
 
-    return await this._getUser(userId, dbconn);
+    const user = await this._getUser(userId, dbconn);
+    this.cache_service.Users.Cache(user);
+
+    return user;
   }
 
   private async _isUniqueUsername(username: string, dbconn: PoolConnection) {
@@ -781,7 +826,10 @@ export class AuthClient {
 
     const qResult = await query.executeNonQuery();
 
-    return await this._getUser(userId, dbconn);
+    const user = await this._getUser(userId, dbconn);
+    this.cache_service.Users.Cache(user);
+
+    return user;
   }
 
   // #endregion
@@ -841,70 +889,64 @@ export class AuthClient {
     });
 
     const count = parseInt(await query.executeScalar(), 10);
-    if (count > 0) {
 
-      // Get the corresponding user according to the supplied email
-      const user = await this._getUser(payload.email, dbconn);
-      if (user && user.id) {
-
-        // Delete the existing password
-
-        qString = `DELETE FROM ${this.tableNames.passwordStore} WHERE user_id=@user_id`;
-        query = new MySqlQuery(qString, dbconn, {
-          parameters: {
-            user_id: user.id
-          }
-        });
-
-        const passDelResult = await query.executeNonQuery();
-        if (!passDelResult.affectedRows) {
-          throw new Error('Unable to delete password corresponding to the user specified');
-        }
-
-        qString = `DELETE FROM ${this.tableNames.hashSaltStore} WHERE user_id=@user_id`;
-        query = new MySqlQuery(qString, dbconn, {
-          parameters: {
-            user_id: user.id
-          }
-        });
-
-        const hashDelResult = await query.executeNonQuery();
-        if (!hashDelResult.affectedRows) {
-          throw new Error('Unable to delete the hash salt corresponding to the user specified');
-        }
-
-        const salt = await this._createUserSaltKey(user, dbconn);
-        if (!salt) {
-          throw new Error('An error occured (code 2)');
-        }
-        const storeResult = await this._storeUserPassword(user.id, payload.password, salt, dbconn);
-
-        if (storeResult) {
-          qString = `DELETE FROM ${this.tableNames.passResetKeyStore} WHERE email=@email`;
-          query = new MySqlQuery(qString, dbconn, {
-            parameters: {
-              email: payload.email
-            }
-          });
-
-          const resetDelResult = await query.executeNonQuery();
-
-          if (!resetDelResult.affectedRows) {
-            throw new Error('Unable to delete existing password reset keys');
-          }
-
-          return true;
-
-        } else {
-          throw new Error('Unable to save user password');
-        }
-
-      } else {
-        throw new Error('No matching user found corresponding to email');
-      }
-    } else {
+    if (count === 0) {
       throw new Error('No matching reset keys found');
     }
+    // Get the corresponding user according to the supplied email
+    const user = await this._getUser(payload.email, dbconn);
+    if (!user || !user.id) {
+      throw new Error('No matching user found corresponding to email');
+    }
+    // Delete the existing password
+    qString = `DELETE FROM ${this.tableNames.passwordStore} WHERE user_id=@user_id`;
+    query = new MySqlQuery(qString, dbconn, {
+      parameters: {
+        user_id: user.id
+      }
+    });
+
+    const passDelResult = await query.executeNonQuery();
+    if (!passDelResult.affectedRows) {
+      throw new Error('Unable to delete password corresponding to the user specified');
+    }
+
+    qString = `DELETE FROM ${this.tableNames.hashSaltStore} WHERE user_id=@user_id`;
+    query = new MySqlQuery(qString, dbconn, {
+      parameters: {
+        user_id: user.id
+      }
+    });
+
+    const hashDelResult = await query.executeNonQuery();
+    if (!hashDelResult.affectedRows) {
+      throw new Error('Unable to delete the hash salt corresponding to the user specified');
+    }
+
+    const salt = await this._createUserSaltKey(user, dbconn);
+    if (!salt) {
+      throw new Error('An error occured (code 2)');
+    }
+    const storeResult = await this._storeUserPassword(user.id, payload.password, salt, dbconn);
+
+    if (!storeResult) {
+      throw new Error('Unable to save user password');
+    }
+
+    qString = `DELETE FROM ${this.tableNames.passResetKeyStore} WHERE email=@email`;
+    query = new MySqlQuery(qString, dbconn, {
+      parameters: {
+        email: payload.email
+      }
+    });
+
+    const resetDelResult = await query.executeNonQuery();
+
+    if (!resetDelResult.affectedRows) {
+      throw new Error('Unable to delete existing password reset keys');
+    }
+
+    return true;
   }
 
   private async _createPasswordResetKey(email: string, dbconn: PoolConnection) {
@@ -1007,7 +1049,10 @@ export class AuthClient {
 
     const qResult = await query.executeNonQuery();
 
-    return await this._getUser(userId, dbconn);
+    const user = await this._getUser(userId, dbconn);
+    this.cache_service.Users.Cache(user);
+
+    return
   }
 
   private async _requestEmailVerification(userId: number, email: string, dbconn: PoolConnection) {
@@ -1092,7 +1137,7 @@ export class AuthClient {
       throw new Error('An error occurred when attempting to update email verification flag');
     }
 
-    qString = `DELETE FROM ${this.tableNames.emailVerifications} WHERE user_id=@userId`;
+    qString = `DELETE FROM ${this.tableNames.emailVerifications} WHERE user_id=@user_id`;
     query = new MySqlQuery(qString, dbconn, {
       parameters: {
         user_id: user.id

@@ -1,4 +1,4 @@
-import { UserIdentity } from "../entities/user-identity";
+import { UserIdentity } from "../types/user-identity";
 
 export interface ILoginResponse {
   user: UserIdentity;

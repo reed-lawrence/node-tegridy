@@ -3,7 +3,7 @@ import { assert } from 'chai';
 import { AuthClient } from '../src/auth-client';
 import { generatePasswordHash, generateRequestToken, generateSalt, generateSessionToken, randomChars } from '../src/auth-crypto';
 import { AuthTesting } from '../src/auth-testing';
-import { IUserInfo } from '../src/entities/user-info';
+import { IUserInfo } from '../src/types/user-info';
 
 describe('Crypto', () => {
 

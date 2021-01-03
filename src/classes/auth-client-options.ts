@@ -1,4 +1,5 @@
-import { IUserInfo } from "../entities/user-info";
+import { ICacheService } from "../services/cache-service";
+import { IUserInfo } from "../types/user-info";
 
 export interface IAuthClientOptions {
   /**
@@ -19,4 +20,9 @@ export interface IAuthClientOptions {
    * (Default: email)
    */
   unique_user_fields?: (keyof IUserInfo)[];
+
+  /**
+   * The service to utilize for session caching
+   */
+  cache_service: ICacheService;
 }
