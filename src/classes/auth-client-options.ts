@@ -24,5 +24,5 @@ export interface IAuthClientOptions {
   /**
    * The service to utilize for session caching
    */
-  cache_service: ICacheService;
+  cache_service?: ICacheService;
 }
