@@ -142,7 +142,7 @@ export class AuthClient {
    * @param loginRequest The login request to be attempted
    * @returns The identity of the user and session token or undefined if invalid login
    */
-  public async Login(sessionToken?: string, loginRequest?: Partial<ILoginRequest>) {
+  public async Login(loginRequest?: Partial<ILoginRequest>, sessionToken?: string) {
     return await this.useConnection((dbconn) => this._login(dbconn, loginRequest, sessionToken));
   }
 
@@ -345,6 +345,20 @@ export class AuthClient {
 
   private async _login(dbconn: PoolConnection, loginRequest?: Partial<ILoginRequest>, sessionToken?: string) {
     /**
+      * if a session token is supplied:
+      *  - Attempt to validate the current session token
+      *    - If session token is valid, update the token date and return the user
+      */
+    if (sessionToken) {
+      const user = await this._validateSession(sessionToken, dbconn);
+      if (user) {
+        await this._updateUserSession(user.id, sessionToken, dbconn);
+        await this._cleanUserSessions(user.id, dbconn);
+        return { user, sessionToken: sessionToken } as ILoginResponse;
+      }
+    }
+
+    /**
      * If a sessionToken was not provided or is not valid, we need to look for login credentials
      */
     if (loginRequest) {
@@ -396,22 +410,6 @@ export class AuthClient {
       await this._cleanUserSessions(user.id, dbconn);
 
       return { user, sessionToken: sessionPayload.token + sessionPayload.selector } as ILoginResponse;
-    }
-
-    /**
-      * if a session token is supplied:
-      *  - Attempt to validate the current session token
-      *    - If session token is valid, update the token date and return the user
-      */
-    if (sessionToken) {
-      const user = await this._validateSession(sessionToken, dbconn);
-      if (user) {
-        await this._updateUserSession(user.id, sessionToken, dbconn);
-        await this._cleanUserSessions(user.id, dbconn);
-        return { user, sessionToken: sessionToken } as ILoginResponse;
-      } else {
-        throw new Error('Session Token invalid');
-      }
     }
 
     throw new Error('Unable to authenticate user');
