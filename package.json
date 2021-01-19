@@ -1,6 +1,6 @@
 {
   "name": "tegridy",
-  "version": "0.9.34",
+  "version": "0.9.35",
   "description": "Lightweight authentication library for Node.js",
   "main": "index.js",
   "scripts": {
@@ -37,6 +37,6 @@
     "@types/mocha": "^5.2.7",
     "chai": "^4.2.0",
     "fs-extra": "^9.0.1",
-    "mocha": "^8.2.0"
+    "mocha": "^8.2.1"
   }
 }

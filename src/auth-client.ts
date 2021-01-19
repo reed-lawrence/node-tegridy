@@ -786,7 +786,9 @@ export class AuthClient {
     const user = await this._getUser(userId, dbconn);
     this.cache_service.Users.Cache(user);
 
-    return user;
+    const updatedUserInfo = await this._getUserInfo(userId, dbconn);
+
+    return updatedUserInfo;
   }
 
   private async _isUniqueUsername(username: string, dbconn: PoolConnection) {
