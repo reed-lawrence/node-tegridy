@@ -672,30 +672,28 @@ export class AuthClient {
 
   private async _register(userInfo: IUserInfo, dbconn: PoolConnection) {
 
-    if (!userInfo.email) {
-      throw new Error('Email not provided in register method');
-    }
-
-    if (!userInfo.username) {
-      throw new Error('Username not provided in register method');
-    }
-
-    if (!userInfo.password) {
-      throw new Error('Password not provided in register method');
-    }
-
-    for (const field of this.unique_fields) {
-      if (field === 'email') {
+    if (this.unique_fields.includes('email')) {
+      if (!userInfo.email) {
+        throw new Error('Email not provided in register method');
+      } else {
         if (!await this._isUniqueEmail(userInfo.email, dbconn)) {
           throw new Error('Duplicate email provided');
         }
       }
+    }
 
-      if (field === 'username') {
+    if (this.unique_fields.includes('username')) {
+      if (!userInfo.username) {
+        throw new Error('Username not provided in register method');
+      } else {
         if (!await this._isUniqueUsername(userInfo.username, dbconn)) {
           throw new Error('Duplicate email provided');
         }
       }
+    }
+
+    if (!userInfo.password) {
+      throw new Error('Password not provided in register method');
     }
 
     const user = await this._createNewUser(userInfo, dbconn);
