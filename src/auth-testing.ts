@@ -67,7 +67,7 @@ export class AuthTesting {
     try {
       const qString = `SELECT * FROM ${this.tables.emailVerifications}`;
       const query = new MySqlQuery(qString, dbconn);
-      var rows = await query.executeQuery();
+      var rows = await query.executeQuery<any>();
 
       if (rows.results && rows.results.length > 0) {
         for (const row of rows.results) {
@@ -90,14 +90,14 @@ export class AuthTesting {
     }
   }
 
-  public async GetPasswordResetRequests(){
+  public async GetPasswordResetRequests() {
     const dbconn = await this.getConnection();
     const output: PasswordResetRequest[] = [];
 
     try {
       const qString = `SELECT * FROM ${this.tables.passResetKeyStore}`;
       const query = new MySqlQuery(qString, dbconn);
-      var rows = await query.executeQuery();
+      var rows = await query.executeQuery<any>();
 
       if (rows.results && rows.results.length > 0) {
         for (const row of rows.results) {

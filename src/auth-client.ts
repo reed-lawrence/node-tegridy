@@ -14,7 +14,7 @@ import { IUserInfo } from './types/user-info';
 import { IUserUpdatePayload } from './classes/user-update-payload';
 import { AuthTableNames } from './constants/table-names';
 import { CacheService, ICacheService } from './services/cache-service';
-import { AntiForgeryToken, SessionToken } from './types/tokens';
+import { AntiForgeryToken, ISessionToken, SessionToken } from './types/tokens';
 
 export class AuthClient {
 
@@ -315,7 +315,7 @@ export class AuthClient {
       }
     });
 
-    const qResult = await query.executeQuery();
+    const qResult = await query.executeQuery<ISessionToken>();
     if (!qResult.results[0]) {
       throw new Error('No rows returned corresponding to the Id returned from the given token selector');
     }
@@ -396,8 +396,6 @@ export class AuthClient {
       if (userCount !== 1) {
         throw new Error('No matching password hash found for the login attempt');
       }
-
-      await user.getUserRoles(this.tableNames.userRoleStore, dbconn);
 
       await this._cleanUserSessions(user.id, dbconn);
       const sessionPayload = await generateSessionToken();
@@ -512,7 +510,7 @@ export class AuthClient {
       }
     });
 
-    const rows = await query.executeQuery();
+    const rows = await query.executeQuery<ISessionToken>();
     if (rows.results && rows.results.length > 0) {
       for (const row of rows.results) {
         tokenList.push(new SessionToken({
@@ -611,7 +609,7 @@ export class AuthClient {
       }
     });
 
-    const rows = await query.executeQuery();
+    const rows = await query.executeQuery<IUserInfo>();
     if (rows.results && rows.results.length > 0) {
       return {
         username: rows.results[0].username ?? undefined,
@@ -640,6 +638,8 @@ export class AuthClient {
   private async _getUser(email: string, dbconn: PoolConnection): Promise<UserIdentity>
   private async _getUser(userId: number, dbconn: PoolConnection): Promise<UserIdentity>
   private async _getUser(arg: number | string, dbconn: PoolConnection) {
+    let output: UserIdentity | undefined = undefined;
+
     let qString = '';
     const qOptions: Partial<IQueryOptions> = {};
 
@@ -656,9 +656,9 @@ export class AuthClient {
 
     const query = new MySqlQuery(qString, dbconn, qOptions);
 
-    const rows = await query.executeQuery();
+    const rows = await query.executeQuery<{ id: number, email: string, username: string, first_name: string, last_name: string }>();
     if (rows.results && rows.results.length > 0) {
-      return new UserIdentity({
+      output = new UserIdentity({
         id: rows.results[0].id,
         email: rows.results[0].email,
         first_name: rows.results[0].first_name,
@@ -668,6 +668,10 @@ export class AuthClient {
     } else {
       throw new Error('No user found');
     }
+
+    output.roles = await this._getUserRoles(output.id, dbconn);
+
+    return output;
   }
 
   private async _register(userInfo: IUserInfo, dbconn: PoolConnection) {
@@ -687,7 +691,7 @@ export class AuthClient {
         throw new Error('Username not provided in register method');
       } else {
         if (!await this._isUniqueUsername(userInfo.username, dbconn)) {
-          throw new Error('Duplicate email provided');
+          throw new Error('Duplicate username provided');
         }
       }
     }
@@ -828,6 +832,31 @@ export class AuthClient {
     this.cache_service.Users.Cache(user);
 
     return user;
+  }
+
+  public async _getUserRoles(userId: number, dbconn: PoolConnection) {
+    const output: string[] = [];
+
+    const qString = `SELECT B.* FROM ${this.tableNames.userRoleStore} A
+    INNER JOIN ${this.tableNames.roles} B
+    ON A.role_id=B.id
+    WHERE A.user_id=@user_id`;
+    const query = new MySqlQuery(qString, dbconn, {
+      parameters: {
+        user_id: userId
+      }
+    });
+
+    const { results } = await query.executeQuery<{ id: number, name: string }>();
+    if (results && results.length) {
+      for (const row of results) {
+        if (row.name) {
+          output.push(row.name);
+        }
+      }
+    }
+
+    return output;
   }
 
   // #endregion

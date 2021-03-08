@@ -28,22 +28,4 @@ export class UserIdentity implements IUserIdentity {
       if (init.username) this.username = init.username;
     }
   }
-
-  public async getUserRoles(tablename: string, dbconn: PoolConnection) {
-    this.roles = new Array<string>();
-    const qString = `SELECT * FROM ${tablename} WHERE user_id=@user_id`;
-    const query = new MySqlQuery(qString, dbconn, {
-      parameters: {
-        user_id: this.id
-      }
-    });
-
-    const rows = await query.executeQuery();
-    if (rows.results) {
-      for (const row of rows.results) {
-        this.roles.push(row.claim);
-      }
-    }
-    return;
-  }
 }
