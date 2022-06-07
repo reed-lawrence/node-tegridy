@@ -1,4 +1,4 @@
-import { createPool, escape, Pool, PoolConfig, PoolConnection } from 'mysql';
+import { createPool, escape, Pool, PoolOptions, PoolConnection } from 'mysql2';
 
 import { IQueryOptions, MySqlQuery } from '@reed-lawrence/mysql-query';
 
@@ -23,7 +23,7 @@ export class AuthClient {
    * @param dbconfig the MySql Connection Pool options
    * @param options (Optional) Specify parameters 
    */
-  constructor(dbconfig: PoolConfig, options?: IAuthClientOptions) {
+  constructor(dbconfig: PoolOptions, options?: IAuthClientOptions) {
     dbconfig.queryFormat = (query: string, values: any) => {
       if (!values) return query;
       return query.replace(/[@](\w+)/g, (txt, key) => {

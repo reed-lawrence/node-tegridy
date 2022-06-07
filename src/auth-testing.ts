@@ -1,5 +1,5 @@
 import { MySqlQuery } from "@reed-lawrence/mysql-query";
-import { createPool, Pool, PoolConfig, PoolConnection, escape } from "mysql";
+import { createPool, Pool, PoolOptions, PoolConnection, escape } from "mysql2";
 import { AuthClient } from "./auth-client";
 import { IAuthClientOptions } from "./classes/auth-client-options";
 import { EmailVerificationToken } from "./types/email-verification-token";
@@ -8,7 +8,7 @@ import { PasswordResetRequest } from "./types/password-reset-request";
 
 export class AuthTesting {
 
-  constructor(dbconfig: PoolConfig, options?: IAuthClientOptions) {
+  constructor(dbconfig: PoolOptions, options?: IAuthClientOptions) {
     dbconfig.queryFormat = (query: string, values: any) => {
       if (!values) return query;
       return query.replace(/[@](\w+)/g, (txt, key) => {
